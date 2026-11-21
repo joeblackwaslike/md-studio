@@ -1,5 +1,7 @@
 """Stylesheet plumbing: EPUB CSS reaches the Document and every extension."""
 
+import tracemalloc
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -54,3 +56,54 @@ def test_reader_leaves_stylesheet_empty_without_css(tmp_path: Path) -> None:
     epub = build_epub(tmp_path / "b.epub", "T", [ChapterSpec("One", "<p>x</p>")])
 
     assert read_epub(epub).stylesheet == ""
+
+
+_BUDGET = 1_048_576
+
+
+def _with_corrupt_css(source: Path, dest: Path) -> Path:
+    with zipfile.ZipFile(source) as archive:
+        member = archive.getinfo("OEBPS/css/s0.css")
+        data_start = member.header_offset + 30 + len(member.filename.encode()) + len(member.extra)
+    raw = source.read_bytes()
+    dest.write_bytes(raw[:data_start] + b"\xff" * 4 + raw[data_start + 4 :])
+    return dest
+
+
+def test_corrupt_css_member_never_fails_the_book(tmp_path: Path) -> None:
+    specs = [ChapterSpec("One", "<h1>One</h1><p>x</p>")]
+    (tmp_path / "plain").mkdir()
+    (tmp_path / "bad").mkdir()
+    plain = build_epub(tmp_path / "plain" / "b.epub", "T", specs)
+    styled = build_epub(tmp_path / "bad" / "src.epub", "T", specs, stylesheets=(".a{}",))
+    broken = _with_corrupt_css(styled, tmp_path / "bad" / "b.epub")
+
+    document = read_epub(broken)
+
+    assert document.stylesheet == ""
+    assert convert(document).text == convert(read_epub(plain)).text
+
+
+def test_huge_declared_css_member_is_read_only_up_to_the_budget(tmp_path: Path) -> None:
+    specs = [ChapterSpec("One", "<p>x</p>")]
+    epub = build_epub(tmp_path / "b.epub", "T", specs, stylesheets=(" " * (70 * _BUDGET),))
+    tracemalloc.start()
+    document = read_epub(epub)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+
+    assert len(document.stylesheet) == _BUDGET
+    assert peak < 20_000_000
+
+
+def test_css_budget_is_shared_across_members(tmp_path: Path) -> None:
+    specs = [ChapterSpec("One", "<p>x</p>")]
+    sheets = tuple(f".m{index}{{}}{' ' * 600_000}" for index in range(3))
+    epub = build_epub(tmp_path / "b.epub", "T", specs, stylesheets=sheets)
+
+    stylesheet = read_epub(epub).stylesheet
+
+    assert len(stylesheet) <= _BUDGET
+    assert ".m0{}" in stylesheet
+    assert ".m1{}" in stylesheet
+    assert ".m2{}" not in stylesheet
