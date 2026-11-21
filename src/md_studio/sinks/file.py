@@ -32,7 +32,12 @@ class FileSink:
         ------
         FileExistsError
             When the destination exists and ``force`` is false.
+        IsADirectoryError
+            When the destination is a directory.
         """
+        if self._dest.is_dir():
+            msg = f"Destination is a directory: {self._dest}"
+            raise IsADirectoryError(msg)
         if self._dest.exists() and not self._force:
             msg = f"Refusing to overwrite existing file: {self._dest}"
             raise FileExistsError(msg)

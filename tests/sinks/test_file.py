@@ -42,3 +42,8 @@ def test_file_sink_overwrites_with_force(tmp_path: Path) -> None:
     FileSink(dest, force=True).write(_rendered(), name="book")
 
     assert dest.read_text(encoding="utf-8") == _rendered().text
+
+
+def test_file_sink_rejects_directory_destination(tmp_path: Path) -> None:
+    with pytest.raises(IsADirectoryError, match="Destination is a directory"):
+        FileSink(tmp_path).write(_rendered(), name="book")

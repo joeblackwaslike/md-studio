@@ -4,10 +4,11 @@ import sys
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from md_studio.cli import app
 from tests.readers._epub import ChapterSpec, build_epub
+
+app = pytest.importorskip("md_studio.cli").app
+CliRunner = pytest.importorskip("typer.testing").CliRunner
 
 BASELINE = os.environ.get("SAFARIBOOKS_BASELINE")
 

@@ -1,9 +1,11 @@
 from pathlib import Path
 
-from typer.testing import CliRunner, Result
+import pytest
 
-from md_studio.cli import app
 from tests.readers._epub import ChapterSpec, build_epub
+
+app = pytest.importorskip("md_studio.cli").app
+CliRunner = pytest.importorskip("typer.testing").CliRunner
 
 
 def _epub(tmp_path: Path) -> Path:
@@ -11,7 +13,7 @@ def _epub(tmp_path: Path) -> Path:
     return build_epub(tmp_path / "book.epub", "Sample", specs)
 
 
-def _convert(*args: Path | str) -> Result:
+def _convert(*args: Path | str):
     return CliRunner().invoke(app, ["convert", *map(str, args)])
 
 
@@ -63,3 +65,25 @@ def test_cli_rejects_unsupported_suffix(tmp_path: Path) -> None:
 
     assert outcome.exit_code != 0
     assert ".epub" in outcome.output
+
+
+def test_cli_reports_unwritable_destination_as_one_line_error(  # noqa: WPS118
+    tmp_path: Path,
+) -> None:
+    blocker = tmp_path / "blocker"
+    blocker.write_text("file", encoding="utf-8")
+
+    outcome = _convert(_epub(tmp_path), "-o", blocker / "x.md")
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert outcome.output.startswith("Error:")
+
+
+def test_cli_reports_directory_dest_cleanly(tmp_path: Path) -> None:
+    outcome = _convert(_epub(tmp_path), "-o", tmp_path, "--force")
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert len(outcome.output.strip().splitlines()) == 1

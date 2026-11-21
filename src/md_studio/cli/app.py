@@ -46,7 +46,7 @@ def _convert_to_file(
     sink = FileSink(dest, force=force)
     try:
         return sink.write(convert_document(_read(source), extensions=extensions), name=source.stem)
-    except (ReadError, UnknownExtensionError, FileExistsError) as error:
+    except (ReadError, UnknownExtensionError, OSError) as error:
         raise _fail(str(error)) from error
 
 
