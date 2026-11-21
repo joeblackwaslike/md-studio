@@ -81,3 +81,14 @@ def test_footnotes_render_after_rule() -> None:
     assert "[^c0-fn1]" in body
     assert "[^c0-fn1]: note" in body
     assert "\n---\n" in body
+
+
+def test_render_result_is_a_snapshot_unaffected_by_later_renders() -> None:
+    renderer = Renderer()
+    chapter = ir.ChapterIR(title="One", blocks=(ir.Paragraph((ir.Text("a"),)),))
+
+    first = renderer.render((chapter,))
+    before = list(first.offsets)
+    renderer.render((chapter,))
+
+    assert first.offsets == before

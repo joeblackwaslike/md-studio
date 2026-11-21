@@ -71,7 +71,7 @@ class Renderer:
         for chapter in chapters:
             self._start_chapter(chapter.title)
             self._render_body(chapter)
-        return RenderResult(body=self._buffer.text(), offsets=self._offsets)
+        return RenderResult(body=self._buffer.text(), offsets=list(self._offsets))
 
     def _start_chapter(self, title: str) -> None:
         """Record the start offset, then write the ``## {title}`` heading."""

@@ -1,4 +1,10 @@
-"""YAML scalar quoting for single-line front-matter values."""
+"""Minimal YAML scalar quoting for front-matter values (parity with safaribooks).
+
+Known limitations, kept so output stays byte-identical to the baseline and tracked
+in issue #1: a value containing a newline is wrapped in double quotes without the
+newline being escaped, so it is not a single-line scalar; and values that YAML reads
+as another type when bare (``true``, ``null``, ``123``) are emitted unquoted.
+"""
 
 _NEEDS_QUOTING = frozenset(":#'\"\n[]{},*&!|>%@`")
 

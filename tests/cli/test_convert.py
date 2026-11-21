@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -183,3 +184,42 @@ def test_cli_reports_unresolvable_output_path_as_one_line_error(
 
 def _raise_loop(self: Path, strict: bool = False) -> Path:  # noqa: FBT001, FBT002
     raise RuntimeError(f"Symlink loop from {self}")
+
+
+class _BrokenEntryPoint:
+    name = "broken"
+
+    def load(self) -> None:
+        raise ImportError("boom: missing dependency")
+
+
+def _install_broken_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "md_studio.core.extensions.discovery.entry_points", lambda group: [_BrokenEntryPoint()]
+    )
+
+
+def test_cli_reports_failed_extension_load_as_one_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _install_broken_plugin(monkeypatch)
+
+    outcome = _convert(_epub(tmp_path), "--ext", "broken")
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert outcome.output.startswith("Error: extension 'broken' failed to load")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert all(record.levelno < logging.WARNING for record in caplog.records)
+
+
+def test_cli_conversion_ignores_unrelated_broken_plugin_quietly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _install_broken_plugin(monkeypatch)
+
+    outcome = _convert(_epub(tmp_path))
+
+    assert outcome.exit_code == 0, outcome.output
+    assert "Traceback" not in outcome.output
+    assert all(record.levelno < logging.WARNING for record in caplog.records)

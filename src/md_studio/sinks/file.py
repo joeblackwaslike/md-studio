@@ -8,23 +8,46 @@ from uuid import uuid4
 
 from md_studio.core.convert import RenderedMarkdown
 
+_CREATE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+_PRIVATE_MODE = 0o600
+_DEFAULT_MODE = 0o666
 
-def _write_exclusive(path: Path, payload: bytes) -> None:
-    """Create *path* (failing if it exists) and write *payload* bytes."""
-    with path.open("xb") as stream:
+
+def _create_exclusive(path: Path, mode: int) -> int:
+    """Create *path* (failing if it exists) with *mode* and return its descriptor."""
+    return os.open(path, _CREATE_FLAGS, mode)
+
+
+def _fill(descriptor: int, payload: bytes) -> None:
+    """Write *payload* to the open *descriptor* and close it."""
+    with os.fdopen(descriptor, "wb") as stream:
         stream.write(payload)
 
 
+def _write_new(path: Path, payload: bytes, mode: int) -> None:
+    """Create *path* exclusively and write *payload*; remove it if the write fails.
+
+    Only a file this call created is removed: a failure to create (for example an
+    existing file or an exhausted descriptor table) leaves *path* untouched.
+    """
+    descriptor = _create_exclusive(path, mode)
+    try:
+        _fill(descriptor, payload)
+    except BaseException:
+        with suppress(OSError):
+            path.unlink(missing_ok=True)
+        raise
+
+
 def _staging_path(dest: Path) -> Path:
-    """Return a unique hidden sibling of *dest* to stage a replacement in."""
-    return dest.with_name(f".{dest.name}.{uuid4().hex}.tmp")
+    """Return a unique hidden sibling of *dest*, short enough for any destination name."""
+    return dest.with_name(f".md-studio-{uuid4().hex}.tmp")
 
 
 def _stage_and_move(staging: Path, dest: Path, payload: bytes) -> None:
-    """Write *payload* to *staging*, then atomically move it over *dest*."""
-    _write_exclusive(staging, payload)
-    if dest.exists():
-        shutil.copymode(dest, staging)
+    """Write *payload* privately to *staging*, match *dest*'s mode, move it over *dest*."""
+    _write_new(staging, payload, _PRIVATE_MODE)
+    shutil.copymode(dest, staging)
     os.replace(staging, dest)  # noqa: PTH105
 
 
@@ -81,17 +104,16 @@ class FileSink:
     def _create(self, payload: bytes) -> None:
         """Write *payload* to a new file, refusing to overwrite an existing one."""
         try:
-            _write_exclusive(self._dest, payload)
+            _write_new(self._dest, payload, _DEFAULT_MODE)
         except FileExistsError as error:
             msg = f"Refusing to overwrite existing file: {self._dest}"
             raise FileExistsError(msg) from error
-        except BaseException:
-            with suppress(OSError):
-                self._dest.unlink(missing_ok=True)
-            raise
 
     def _replace(self, payload: bytes) -> None:
-        """Write *payload* to a sibling temporary file and move it over the destination."""
+        """Replace the destination atomically via a private sibling temporary file."""
+        if not self._dest.exists():
+            self._create(payload)
+            return
         staging = _staging_path(self._dest)
         try:
             _stage_and_move(staging, self._dest, payload)

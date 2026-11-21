@@ -1,3 +1,5 @@
+import errno
+import os
 from pathlib import Path
 
 import pytest
@@ -89,8 +91,9 @@ def test_file_sink_preserves_carriage_returns_in_text(tmp_path: Path) -> None:
     assert dest.read_bytes() == b"a\r\nb\n"
 
 
-def _fail_midway(path: Path, payload: bytes) -> None:
-    path.write_bytes(payload[:3])
+def _fail_midway(descriptor: int, payload: bytes) -> None:
+    os.write(descriptor, payload[:3])
+    os.close(descriptor)
     raise OSError("disk full")
 
 
@@ -100,7 +103,7 @@ def test_file_sink_force_failure_keeps_original_and_leaves_no_temp_file(
     dest = tmp_path / "book.md"
     dest.write_text("old", encoding="utf-8")
 
-    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _fail_midway)
+    monkeypatch.setattr("md_studio.sinks.file._fill", _fail_midway)
 
     with pytest.raises(OSError, match="disk full"):
         FileSink(dest, force=True).write(_rendered(), name="book")
@@ -131,7 +134,7 @@ def test_file_sink_create_failure_removes_partial_file_and_allows_retry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dest = tmp_path / "book.md"
-    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _fail_midway)
+    monkeypatch.setattr("md_studio.sinks.file._fill", _fail_midway)
 
     with pytest.raises(OSError, match="disk full"):
         FileSink(dest).write(_rendered(), name="book")
@@ -146,8 +149,9 @@ class _Interrupted(BaseException):  # noqa: WPS418
     """Stands in for KeyboardInterrupt."""
 
 
-def _interrupt_midway(path: Path, payload: bytes) -> None:
-    path.write_bytes(payload[:3])
+def _interrupt_midway(descriptor: int, payload: bytes) -> None:
+    os.write(descriptor, payload[:3])
+    os.close(descriptor)
     raise _Interrupted
 
 
@@ -156,7 +160,7 @@ def test_file_sink_force_interrupt_keeps_original_and_leaves_no_temp_file(
 ) -> None:
     dest = tmp_path / "book.md"
     dest.write_text("old", encoding="utf-8")
-    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _interrupt_midway)
+    monkeypatch.setattr("md_studio.sinks.file._fill", _interrupt_midway)
 
     with pytest.raises(_Interrupted):
         FileSink(dest, force=True).write(_rendered(), name="book")
@@ -169,7 +173,7 @@ def test_file_sink_create_interrupt_leaves_no_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dest = tmp_path / "book.md"
-    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _interrupt_midway)
+    monkeypatch.setattr("md_studio.sinks.file._fill", _interrupt_midway)
 
     with pytest.raises(_Interrupted):
         FileSink(dest).write(_rendered(), name="book")
@@ -188,8 +192,68 @@ def test_file_sink_failed_cleanup_does_not_mask_the_original_error(
     force: bool,  # noqa: FBT001
 ) -> None:
     dest = tmp_path / "book.md"
-    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _fail_midway)
+    monkeypatch.setattr("md_studio.sinks.file._fill", _fail_midway)
     monkeypatch.setattr(Path, "unlink", _unlink_denied)
 
     with pytest.raises(OSError, match="disk full"):
         FileSink(dest, force=force).write(_rendered(), name="book")
+
+
+def _emfile(path: Path, mode: int) -> int:
+    raise OSError(errno.EMFILE, "Too many open files")
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_file_sink_open_failure_leaves_existing_destination_untouched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    force: bool,  # noqa: FBT001
+) -> None:
+    dest = tmp_path / "book.md"
+    dest.write_bytes(b"sentinel")
+    monkeypatch.setattr("md_studio.sinks.file._create_exclusive", _emfile)
+
+    with pytest.raises(OSError, match="Too many open files"):
+        FileSink(dest, force=force).write(_rendered(), name="book")
+
+    assert dest.read_bytes() == b"sentinel"
+    assert list(tmp_path.iterdir()) == [dest]
+
+
+def test_file_sink_force_replaces_destination_with_a_maximum_length_name(
+    tmp_path: Path,
+) -> None:
+    dest = tmp_path / f"{'a' * 247}.md"
+    dest.write_text("old", encoding="utf-8")
+
+    FileSink(dest, force=True).write(_rendered(), name="book")
+
+    assert dest.read_text(encoding="utf-8") == _rendered().text
+    assert list(tmp_path.iterdir()) == [dest]
+
+
+class _ModeSpy:
+    """Stand-in for ``_fill`` that records each descriptor's permission bits."""
+
+    def __init__(self) -> None:
+        self.modes: list[int] = []
+
+    def __call__(self, descriptor: int, payload: bytes) -> None:
+        self.modes.append(os.fstat(descriptor).st_mode & 0o777)
+        os.write(descriptor, payload)
+        os.close(descriptor)
+
+
+def test_file_sink_stages_replacement_privately_then_matches_destination_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "book.md"
+    dest.write_text("old", encoding="utf-8")
+    dest.chmod(0o644)
+    spy = _ModeSpy()
+    monkeypatch.setattr("md_studio.sinks.file._fill", spy)
+
+    FileSink(dest, force=True).write(_rendered(), name="book")
+
+    assert spy.modes == [0o600]
+    assert dest.stat().st_mode & 0o777 == 0o644

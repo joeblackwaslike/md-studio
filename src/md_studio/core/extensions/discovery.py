@@ -46,7 +46,7 @@ def discover_with_failures() -> tuple[Registry, Failures]:
         try:
             registry[entry.name] = entry.load()
         except Exception as error:
-            logger.exception("Failed to load markdown extension %r", entry.name)
+            logger.debug("Failed to load markdown extension %r", entry.name, exc_info=True)
             failures[entry.name] = f"{type(error).__name__}: {error}"
     return registry, failures
 
