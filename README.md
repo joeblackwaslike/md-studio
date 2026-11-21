@@ -16,7 +16,16 @@ Extras: `cli` (typer, rich) and `pdf` (docling).
 md-studio convert BOOK.epub [-o PATH] [--ext NAMES] [--force] [--sink file|obsidian] [--vault PATH]
 ```
 
-The output defaults to `BOOK.md` next to the source. `--ext` takes comma-separated extension names in pipeline order (`fix-headings,remove-footnotes,fix-broken-links,reformat-toc`). An existing destination is refused unless you pass `--force`, and the source file itself is never overwritten.
+The output defaults to `BOOK.md` next to the source. `--ext` takes comma-separated names, enabled in the order given (see [Extensions](#extensions)). An existing destination is refused unless you pass `--force`, and the source file itself is never overwritten.
+
+### Extensions
+
+Nothing runs unless you name it with `--ext`. Built-ins: `fix-headings`, `remove-footnotes`, `fix-broken-links`, `reformat-toc`.
+
+- `fix-headings` promotes paragraphs that act as headings. It reads the EPUB's stylesheet and ranks classes styled at 1.3rem or larger (or 1.1rem and bold) into levels 1-6 by size; sizes within 0.1rem share a level. Without a matching class it falls back to an inline `font-size` or a heading-like class name.
+- Every promotion is listed in `<output stem>.audit.md` next to the output, written only when something was promoted and only with the file sink. An existing audit file is refused unless you pass `--force`.
+
+Extensions come in two kinds that share one name list. A Markdown extension subclasses `md_studio.core.extensions.MarkdownExtension` and transforms chapters. A source fix has a `name` and `apply(document) -> Document` (the `SourceFix` protocol) and runs before extraction, in listed order. To add either, write the class and register it in the `md_studio.extensions` entry-point group, or add it to `BUILTINS` in `md_studio/core/extensions/discovery.py`. Names are unique across both kinds; built-in names cannot be shadowed.
 
 ### Obsidian sink
 
