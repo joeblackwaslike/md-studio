@@ -4,6 +4,7 @@ Pipeline: assemble IR -> run extension pipeline -> render body + record
 offsets -> build two-pass front matter. Performs no file I/O.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from md_studio.core import assemble, frontmatter, ir
@@ -22,7 +23,12 @@ class RenderedMarkdown:
     chapters: tuple[frontmatter.ChapterRange, ...]
 
 
-def convert(document: Document, *, extensions: list[str] | None = None) -> RenderedMarkdown:
+def convert(
+    document: Document,
+    *,
+    extensions: list[str] | None = None,
+    extra: Mapping[str, str | list[str]] | None = None,
+) -> RenderedMarkdown:
     """Convert *document* to Markdown.
 
     Parameters
@@ -31,6 +37,9 @@ def convert(document: Document, *, extensions: list[str] | None = None) -> Rende
         The parsed source document.
     extensions:
         Ordered extension names to run (pipeline order). Defaults to none.
+    extra:
+        Additional front-matter properties; key rules are documented on
+        :func:`md_studio.core.frontmatter.build`.
 
     Returns
     -------
@@ -43,6 +52,8 @@ def convert(document: Document, *, extensions: list[str] | None = None) -> Rende
         When a configured extension name is not registered.
     ExtensionLoadError
         When a requested entry-point extension fails to import.
+    MdStudioError
+        When an *extra* key is invalid or collides with a reserved key.
     OffsetOverflowError
         When a chapter offset exceeds the fixed front-matter field width.
 
@@ -56,6 +67,7 @@ def convert(document: Document, *, extensions: list[str] | None = None) -> Rende
         [chapter.title for chapter in chapters],
         rendered.offsets,
         rendered.body,
+        extra=extra,
     )
     return RenderedMarkdown(
         text=f"{front_matter}{rendered.body}",

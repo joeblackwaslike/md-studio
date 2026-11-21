@@ -1,8 +1,11 @@
 import importlib
 import logging
+import os
+import re
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from md_studio.cli import app
@@ -297,3 +300,242 @@ def test_cli_reports_unpreservable_group_as_one_line_error(
     assert outcome.output.startswith("Error: Cannot preserve group of")
     assert len(outcome.output.strip().splitlines()) == 1
     assert dest.read_bytes() == b"original"
+
+
+def _cli_note(tmp_path: Path) -> tuple[dict[str, object], bytes]:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", vault)
+    assert outcome.exit_code == 0, outcome.output
+    raw = (vault / "Book Notes" / "book.md").read_bytes()
+    return yaml.safe_load(raw.decode("utf-8").split("---\n")[1]), raw
+
+
+def test_cli_obsidian_sink_writes_note_properties(tmp_path: Path) -> None:
+    properties, _ = _cli_note(tmp_path)
+
+    assert not (tmp_path / "book.md").exists()
+    assert (properties["source"], properties["author"]) == ("book.epub", ["Ada Lovelace"])
+    assert (properties["tags"], properties["type"], properties["status"]) == (
+        ["book-notes"],
+        "book-note",
+        "draft",
+    )
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(properties["created"]))
+
+
+def test_cli_obsidian_note_chapter_offsets_point_at_headings(tmp_path: Path) -> None:
+    properties, raw = _cli_note(tmp_path)
+    chapters = properties["chapters"]
+
+    assert chapters
+    assert all(raw[chapter["start_byte"] :].startswith(b"## ") for chapter in chapters)
+
+
+def test_cli_obsidian_sink_reads_vault_from_environment(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    outcome = CliRunner().invoke(
+        app,
+        ["convert", str(_epub(tmp_path)), "--sink", "obsidian"],
+        env={"MD_STUDIO_VAULT": str(vault)},
+    )
+
+    assert outcome.exit_code == 0, outcome.output
+    assert (vault / "Book Notes" / "book.md").exists()
+
+
+def test_cli_obsidian_without_vault_is_one_line_error(tmp_path: Path) -> None:
+    outcome = CliRunner().invoke(
+        app,
+        ["convert", str(_epub(tmp_path)), "--sink", "obsidian"],
+        env={"MD_STUDIO_VAULT": ""},
+    )
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: ")
+    assert "MD_STUDIO_VAULT" in outcome.output
+    assert len(outcome.output.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize("flag", ["-o", "--force"])
+def test_cli_obsidian_rejects_unsupported_option_before_reading(tmp_path: Path, flag: str) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    args = [flag, tmp_path / "x.md"] if flag == "-o" else [flag]
+
+    outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault, *args)
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: --sink obsidian does not accept")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert not (vault / "Book Notes").exists()
+    assert not (tmp_path / "x.md").exists()
+
+
+def test_cli_obsidian_missing_vault_directory_is_one_line_error(tmp_path: Path) -> None:
+    outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", tmp_path / "nope")
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: ")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert not (tmp_path / "nope").exists()
+
+
+def _vault_dir(tmp_path: Path, name: str = "vault") -> Path:
+    vault = tmp_path / name
+    vault.mkdir()
+    return vault
+
+
+def _one_error_line(outcome) -> bool:
+    return outcome.output.startswith("Error: ") and len(outcome.output.strip().splitlines()) == 1
+
+
+def test_cli_obsidian_second_run_refuses_to_overwrite(tmp_path: Path) -> None:
+    vault = _vault_dir(tmp_path)
+    source = _epub(tmp_path)
+    _convert(source, "--sink", "obsidian", "--vault", vault)
+    note = vault / "Book Notes" / "book.md"
+    before = note.read_bytes()
+
+    second = _convert(source, "--sink", "obsidian", "--vault", vault)
+
+    assert second.exit_code == 1
+    assert second.output.startswith("Error: Refusing to overwrite")
+    assert len(second.output.strip().splitlines()) == 1
+    assert note.read_bytes() == before
+
+
+def test_cli_vault_flag_wins_over_environment(tmp_path: Path) -> None:
+    flag_vault = _vault_dir(tmp_path, "flag")
+    env_vault = _vault_dir(tmp_path, "env")
+
+    outcome = CliRunner().invoke(
+        app,
+        ["convert", str(_epub(tmp_path)), "--sink", "obsidian", "--vault", str(flag_vault)],
+        env={"MD_STUDIO_VAULT": str(env_vault)},
+    )
+
+    assert outcome.exit_code == 0, outcome.output
+    assert (flag_vault / "Book Notes" / "book.md").exists()
+    assert not list(env_vault.iterdir())
+
+
+def test_cli_default_sink_ignores_vault_environment(tmp_path: Path) -> None:
+    vault = _vault_dir(tmp_path)
+
+    outcome = CliRunner().invoke(
+        app, ["convert", str(_epub(tmp_path))], env={"MD_STUDIO_VAULT": str(vault)}
+    )
+
+    assert outcome.exit_code == 0, outcome.output
+    assert (tmp_path / "book.md").exists()
+    assert not list(vault.iterdir())
+
+
+def test_cli_obsidian_vault_that_is_a_file_is_one_line_error(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.write_text("x")
+
+    outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", vault)
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_cli_obsidian_unwritable_vault_is_one_line_error(tmp_path: Path) -> None:
+    vault = _vault_dir(tmp_path)
+    vault.chmod(0o500)
+    try:
+        outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", vault)
+    finally:
+        vault.chmod(0o700)
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert not (vault / "Book Notes").exists()
+
+
+def test_cli_obsidian_notes_folder_that_is_a_file_fails_before_reading(tmp_path: Path) -> None:
+    vault = _vault_dir(tmp_path)
+    (vault / "Book Notes").write_text("x")
+
+    outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault)
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert "Notes folder is not a directory" in outcome.output
+    assert (vault / "Book Notes").read_text() == "x"
+
+
+def test_cli_obsidian_unknown_home_user_is_one_line_error(tmp_path: Path) -> None:
+    outcome = _convert(
+        tmp_path / "missing.epub", "--sink", "obsidian", "--vault", "~nosuchuserxyz/v"
+    )
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert "--vault" in outcome.output
+    assert "Traceback" not in outcome.output
+
+
+def test_cli_obsidian_blank_vault_is_one_line_error_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _epub(tmp_path)
+    workdir = _vault_dir(tmp_path, "cwd")
+    monkeypatch.chdir(workdir)
+
+    outcome = _convert(source, "--sink", "obsidian", "--vault", "")
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert not list(workdir.iterdir())
+
+
+def test_cli_obsidian_expands_tilde_in_vault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _vault_dir(tmp_path, "home")
+    (home / "vault").mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    outcome = CliRunner().invoke(
+        app,
+        ["convert", str(_epub(tmp_path)), "--sink", "obsidian"],
+        env={"MD_STUDIO_VAULT": "~/vault"},
+    )
+
+    assert outcome.exit_code == 0, outcome.output
+    assert (home / "vault" / "Book Notes" / "book.md").exists()
+
+
+@pytest.mark.parametrize("problem", ["file", "missing"])
+def test_cli_obsidian_checks_vault_before_reading_source(tmp_path: Path, problem: str) -> None:
+    vault = tmp_path / "vault"
+    if problem == "file":
+        vault.write_text("x")
+
+    outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault)
+
+    assert outcome.exit_code == 1
+    assert "Vault is not a directory" in outcome.output
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_cli_obsidian_unwritable_notes_folder_fails_before_reading(tmp_path: Path) -> None:
+    vault = _vault_dir(tmp_path)
+    notes = vault / "Book Notes"
+    notes.mkdir()
+    notes.chmod(0o500)
+    try:
+        outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault)
+    finally:
+        notes.chmod(0o700)
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert "Notes folder is not writable" in outcome.output
