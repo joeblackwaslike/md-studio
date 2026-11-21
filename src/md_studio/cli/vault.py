@@ -19,6 +19,18 @@ class SinkChoice(StrEnum):
     VAULT = "obsidian"
 
 
+def _expand(vault: str) -> Path:
+    """Return *vault* as a path with ``~`` expanded, rejecting blank or unresolvable values."""
+    if not vault.strip():
+        msg = "--vault is blank: pass the vault directory"
+        raise SinkError(msg)
+    try:
+        return Path(vault).expanduser()
+    except RuntimeError as error:
+        msg = f"Cannot expand --vault: {error}"
+        raise SinkError(msg) from error
+
+
 def open_vault_sink(vault: str | None, *, output: Path | None, force: bool) -> ObsidianSink:
     """Return a checked Obsidian sink for *vault*, rejecting options it cannot honor.
 
@@ -34,8 +46,8 @@ def open_vault_sink(vault: str | None, *, output: Path | None, force: bool) -> O
     Raises
     ------
     SinkError
-        When ``-o``/``--force`` was given, no vault is configured or it is blank, or the
-        vault cannot take a note. Nothing is created in any of those cases.
+        When ``-o``/``--force`` was given, no vault is configured, it is blank or cannot
+        be expanded, or the vault cannot take a note. Nothing is created in any of those cases.
     """
     if output is not None or force:
         msg = "--sink obsidian does not accept -o/--output or --force"
@@ -43,10 +55,8 @@ def open_vault_sink(vault: str | None, *, output: Path | None, force: bool) -> O
     if vault is None:
         msg = f"--sink obsidian needs a vault: pass --vault PATH or set {VAULT_ENV}"
         raise SinkError(msg)
-    if not vault.strip():
-        msg = "--vault is blank: pass the vault directory"
-        raise SinkError(msg)
-    sink = ObsidianSink(Path(vault).expanduser(), folder=_FOLDER)
+    expanded = _expand(vault)
+    sink = ObsidianSink(expanded, folder=_FOLDER)
     sink.check()
     return sink
 

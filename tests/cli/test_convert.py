@@ -459,15 +459,27 @@ def test_cli_obsidian_unwritable_vault_is_one_line_error(tmp_path: Path) -> None
     assert not (vault / "Book Notes").exists()
 
 
-def test_cli_obsidian_notes_folder_that_is_a_file_is_one_line_error(tmp_path: Path) -> None:
+def test_cli_obsidian_notes_folder_that_is_a_file_fails_before_reading(tmp_path: Path) -> None:
     vault = _vault_dir(tmp_path)
     (vault / "Book Notes").write_text("x")
 
-    outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", vault)
+    outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault)
 
     assert outcome.exit_code == 1
     assert _one_error_line(outcome)
+    assert "Notes folder is not a directory" in outcome.output
     assert (vault / "Book Notes").read_text() == "x"
+
+
+def test_cli_obsidian_unknown_home_user_is_one_line_error(tmp_path: Path) -> None:
+    outcome = _convert(
+        tmp_path / "missing.epub", "--sink", "obsidian", "--vault", "~nosuchuserxyz/v"
+    )
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert "--vault" in outcome.output
+    assert "Traceback" not in outcome.output
 
 
 def test_cli_obsidian_blank_vault_is_one_line_error_and_writes_nothing(
