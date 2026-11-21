@@ -150,3 +150,13 @@ def test_resolve_still_reports_unknown_names_when_another_extension_failed(
 
     with pytest.raises(UnknownExtensionError, match="nope"):
         resolve(["nope"])
+
+
+@pytest.mark.parametrize("style", ["font-size:.", "font-size:1.2.3", "font-size: ..;"])
+def test_fix_headings_ignores_malformed_font_sizes(style: str) -> None:
+    para = ir.Paragraph((ir.Text("Not A Title"),), ir.Meta(tag="div", style=style))
+    chapter = ir.ChapterIR(title="C", blocks=(para,))
+
+    transformed = FixHeadings().transform_chapter(chapter, _ctx())
+
+    assert isinstance(transformed.blocks[0], ir.Paragraph)

@@ -80,11 +80,11 @@ def _rewrite_zip(
 ) -> Path:
     """Rewrite *epub* in place without the *drop* members and with *replace* contents."""
     swaps = replace or {}
-    members = _read_members(epub)
+    members = {**_read_members(epub), **swaps}
     with zipfile.ZipFile(epub, "w", zipfile.ZIP_DEFLATED) as target:
         for name, payload in members.items():
             if name not in drop:
-                target.writestr(name, swaps.get(name, payload))
+                target.writestr(name, payload)
     return epub
 
 
@@ -222,3 +222,38 @@ def test_oversize_chapter_member_raises_read_error_naming_it(
 
     with pytest.raises(ReadError, match=r"OEBPS/ch0\.xhtml exceeds"):
         read_epub(epub)
+
+
+_SPACED = "OEBPS/ch 0.xhtml"
+
+
+def _percent_encode_chapter_href(epub: Path) -> Path:
+    """Rename the first chapter to ``ch 0.xhtml`` and reference it as ``ch%200.xhtml``."""
+    members = _read_members(epub)
+    opf = members[_OPF].decode("utf-8").replace('href="ch0.xhtml"', 'href="ch%200.xhtml"')
+    ncx = members["OEBPS/toc.ncx"].decode("utf-8").replace('src="ch0.xhtml"', 'src="ch%200.xhtml"')
+    return _rewrite_zip(
+        epub,
+        drop=("OEBPS/ch0.xhtml",),
+        replace={
+            _OPF: opf.encode("utf-8"),
+            "OEBPS/toc.ncx": ncx.encode("utf-8"),
+            _SPACED: members["OEBPS/ch0.xhtml"],
+        },
+    )
+
+
+def test_percent_encoded_manifest_href_reads_chapter_content(tmp_path: Path) -> None:
+    specs = [ChapterSpec("Nav Title", "<p>hello spaced world</p>")]
+    epub = _percent_encode_chapter_href(build_epub(tmp_path / "sp.epub", "T", specs))
+
+    chapter = read_epub(epub).chapters[0]
+
+    assert "hello spaced world" in chapter.element.text_content()
+
+
+def test_percent_encoded_ncx_href_still_supplies_the_title(tmp_path: Path) -> None:
+    specs = [ChapterSpec("Nav Title", "<p>no heading here</p>")]
+    epub = _percent_encode_chapter_href(build_epub(tmp_path / "sp.epub", "T", specs))
+
+    assert read_epub(epub).chapters[0].title == "Nav Title"

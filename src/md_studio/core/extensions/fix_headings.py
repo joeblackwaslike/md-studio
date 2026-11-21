@@ -13,7 +13,9 @@ from md_studio.core import ir
 from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
 from md_studio.core.headings import text_of_inlines
 
-_FONT_SIZE_RE = re.compile(r"font-size\s*:\s*([\d.]+)\s*(px|pt|em|rem|%)?", re.IGNORECASE)
+_FONT_SIZE_RE = re.compile(
+    r"font-size\s*:\s*(\d+(?:\.\d+)?|\.\d+)\s*(px|pt|em|rem|%)?", re.IGNORECASE
+)
 _HEADING_CLASS_RE = re.compile(r"\b(?:h[1-6]|title|chapter-?title|heading|head)\b", re.IGNORECASE)
 _EM_PX = 16.0
 _CSS_PX_PER_INCH = 96.0

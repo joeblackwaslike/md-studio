@@ -2,6 +2,7 @@
 
 import posixpath
 import zipfile
+from urllib.parse import unquote
 
 from lxml import etree
 
@@ -12,8 +13,8 @@ from md_studio.readers.epub.xml import anywhere, local, parse_xml
 
 
 def resolve(base_dir: str, href: str) -> str:
-    """Resolve a manifest/NCX *href* (minus fragment) to a normalized zip path."""
-    clean = href.split("#", 1)[0]
+    """Resolve a manifest/NCX *href* (minus fragment, percent-decoded) to a zip path."""
+    clean = unquote(href.split("#", 1)[0])
     joined = posixpath.join(base_dir, clean) if base_dir else clean
     return posixpath.normpath(joined)
 

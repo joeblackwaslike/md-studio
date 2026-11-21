@@ -41,6 +41,8 @@ def convert(document: Document, *, extensions: list[str] | None = None) -> Rende
     ------
     UnknownExtensionError
         When a configured extension name is not registered.
+    ExtensionLoadError
+        When a requested entry-point extension fails to import.
     OffsetOverflowError
         When a chapter offset exceeds the fixed front-matter field width.
 
