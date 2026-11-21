@@ -3,7 +3,7 @@
 import os
 import re
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from md_studio.core.convert import RenderedMarkdown
 from md_studio.core.document import DocumentMetadata
@@ -11,7 +11,8 @@ from md_studio.sinks import SinkError
 from md_studio.sinks.file import FileSink
 
 _UNSAFE_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\s]+')
-_MAX_NAME_LENGTH = 200
+_MAX_STEM_BYTES = 237
+_SUFFIX = ".md"
 _FALLBACK_NAME = "untitled"
 _NOTE_TYPE = "book-note"
 _NOTE_TAGS = ("book-notes",)
@@ -22,18 +23,31 @@ def sanitize_note_name(name: str) -> str:
     """Return *name* reduced to a filename stem Obsidian and common filesystems accept.
 
     Characters rejected by Obsidian or filesystems become spaces, whitespace is
-    collapsed, and leading dots and surrounding spaces are removed. An empty result
-    becomes ``untitled``.
+    collapsed, and leading dots and spaces and trailing dots and spaces are removed.
+    The stem is cut to fit 237 UTF-8 bytes, so ``<stem>.md`` stays within the common
+    240-byte component limit without splitting a character. An empty result becomes
+    ``untitled``.
     """
-    cleaned = _UNSAFE_NAME.sub(" ", name).strip().lstrip(".").strip()
-    return cleaned[:_MAX_NAME_LENGTH].rstrip(". ") or _FALLBACK_NAME
+    cleaned = _UNSAFE_NAME.sub(" ", name).strip().lstrip(". ")
+    clipped = cleaned.encode("utf-8")[:_MAX_STEM_BYTES].decode("utf-8", errors="ignore")
+    return clipped.rstrip(". ") or _FALLBACK_NAME
 
 
 class ObsidianSink:
     """Write rendered Markdown as a new note under ``<vault>/<folder>``."""
 
     def __init__(self, vault: Path, *, folder: str) -> None:
-        """Configure the vault root and the folder, relative to it, that holds the notes."""
+        """Configure the vault root and the folder, relative to it, that holds the notes.
+
+        Raises
+        ------
+        SinkError
+            When *folder* is empty, absolute, or contains ``..``.
+        """
+        parts = PurePath(folder).parts
+        if not parts or PurePath(folder).is_absolute() or ".." in parts:
+            msg = f"Folder must be a non-empty relative path without '..': {folder!r}"
+            raise SinkError(msg)
         self._vault = vault
         self._folder = folder
 
@@ -87,7 +101,7 @@ class ObsidianSink:
             When a note with that name already exists.
         """
         self._check_vault()
-        dest = self._vault / self._folder / f"{sanitize_note_name(name)}.md"
+        dest = self._vault / self._folder / f"{sanitize_note_name(name)}{_SUFFIX}"
         return FileSink(dest).write(rendered, name=name)
 
     def _check_vault(self) -> None:

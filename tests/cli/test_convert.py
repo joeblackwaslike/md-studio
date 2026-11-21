@@ -338,17 +338,20 @@ def test_cli_obsidian_without_vault_is_one_line_error(tmp_path: Path) -> None:
     assert len(outcome.output.strip().splitlines()) == 1
 
 
-def test_cli_obsidian_rejects_output_option(tmp_path: Path) -> None:
+@pytest.mark.parametrize("flag", [["-o", "x.md"], ["--force"]])
+def test_cli_obsidian_rejects_unsupported_option_before_reading(
+    tmp_path: Path, flag: list[str]
+) -> None:
     vault = tmp_path / "vault"
     vault.mkdir()
 
-    outcome = _convert(
-        _epub(tmp_path), "--sink", "obsidian", "--vault", vault, "-o", tmp_path / "x.md"
-    )
+    outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault, *flag)
 
     assert outcome.exit_code == 1
-    assert outcome.output.startswith("Error: ")
+    assert outcome.output.startswith("Error: --sink obsidian does not accept")
     assert len(outcome.output.strip().splitlines()) == 1
+    assert not (vault / "Book Notes").exists()
+    assert not (tmp_path / "x.md").exists()
 
 
 def test_cli_obsidian_missing_vault_directory_is_one_line_error(tmp_path: Path) -> None:

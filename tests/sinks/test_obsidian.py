@@ -1,7 +1,6 @@
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
@@ -42,7 +41,7 @@ def _written_note(tmp_path: Path) -> tuple[Path, str]:
     return written, written.read_text(encoding="utf-8")
 
 
-def _front_matter(text: str) -> dict[str, Any]:
+def _front_matter(text: str) -> Mapping[str, object]:
     return yaml.safe_load(text.split("---\n")[1])
 
 
@@ -54,7 +53,14 @@ def test_note_written_with_properties(tmp_path: Path) -> None:
     assert (properties["title"], properties["source"]) == ("Sample", "book.epub")
     assert (properties["type"], properties["status"]) == ("book-note", "draft")
     assert properties["tags"] == ["book-notes"]
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(properties["created"]))
+
+
+def test_created_is_iso_date_string(tmp_path: Path) -> None:
+    _, text = _written_note(tmp_path)
+    created = _front_matter(text)["created"]
+
+    assert isinstance(created, str)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", created)
 
 
 def test_note_chapter_offsets_point_at_headings(tmp_path: Path) -> None:
@@ -112,6 +118,13 @@ def test_unwritable_vault_raises_before_writing(readonly_vault: Path) -> None:
     [
         ('a/b\N{REVERSE SOLIDUS}c:d*e?f"g<h>i|j', "a b c d e f g h i j.md"),
         ("..hidden  title ", "hidden title.md"),
+        (". . x", "x.md"),
+        ("a. . ", "a.md"),
+        ("a\x00b", "a b.md"),
+        ("..", "untitled.md"),
+        (".", "untitled.md"),
+        ('/\N{REVERSE SOLIDUS}:*?"<>|', "untitled.md"),
+        ("a \t\n  b", "a b.md"),
         ("///", "untitled.md"),
         ("", "untitled.md"),
     ],
@@ -132,3 +145,28 @@ def test_existing_note_not_overwritten(tmp_path: Path) -> None:
         sink.write(_rendered("two"), name="n")
 
     assert first.read_text(encoding="utf-8") == "one"
+
+
+@pytest.mark.parametrize("name", ["é" * 150, "日" * 100, "a" * 300])
+def test_long_names_fit_filename_byte_limit(tmp_path: Path, name: str) -> None:
+    sink = ObsidianSink(_vault(tmp_path), folder=_FOLDER)
+
+    written = sink.write(_rendered(), name=name)
+
+    assert len(written.name.encode("utf-8")) <= 240
+    assert written.name.endswith(".md")
+    assert written.read_text(encoding="utf-8") == _rendered().text
+
+
+@pytest.mark.parametrize("folder", ["", ".", "/abs", "../up", "a/../b"])
+def test_unsafe_folder_rejected(tmp_path: Path, folder: str) -> None:
+    with pytest.raises(SinkError):
+        ObsidianSink(_vault(tmp_path), folder=folder)
+
+
+def test_nested_relative_folder_allowed(tmp_path: Path) -> None:
+    sink = ObsidianSink(_vault(tmp_path), folder="Books/Tech")
+
+    written = sink.write(_rendered(), name="n")
+
+    assert written == tmp_path / "vault" / "Books" / "Tech" / "n.md"
