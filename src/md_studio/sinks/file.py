@@ -2,6 +2,7 @@
 
 import os
 import shutil
+from contextlib import suppress
 from pathlib import Path
 from uuid import uuid4
 
@@ -84,8 +85,9 @@ class FileSink:
         except FileExistsError as error:
             msg = f"Refusing to overwrite existing file: {self._dest}"
             raise FileExistsError(msg) from error
-        except OSError:
-            self._dest.unlink(missing_ok=True)
+        except BaseException:
+            with suppress(OSError):
+                self._dest.unlink(missing_ok=True)
             raise
 
     def _replace(self, payload: bytes) -> None:
@@ -94,5 +96,6 @@ class FileSink:
         try:
             _stage_and_move(staging, self._dest, payload)
         except BaseException:
-            staging.unlink(missing_ok=True)
+            with suppress(OSError):
+                staging.unlink(missing_ok=True)
             raise

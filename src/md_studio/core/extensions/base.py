@@ -1,7 +1,7 @@
 """Base class and context for Markdown transformation extensions.
 
-Extensions run on the IR between assembly and rendering, so they never affect
-the line/byte offsets recorded by the renderer. Subclass
+Extensions run on the IR before rendering, so the renderer records line/byte
+offsets from their output; extensions never need to adjust offsets themselves. Subclass
 :class:`MarkdownExtension` and override only the hooks you need; both default to
 identity.
 """

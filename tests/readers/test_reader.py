@@ -199,15 +199,6 @@ def test_unreadable_member_raises_read_error(
         read_epub(epub)
 
 
-def test_oversize_member_raises_read_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    big = ChapterSpec("One", "<p>x</p>" * 100)
-    epub = build_epub(tmp_path / "big.epub", "T", [big])
-    monkeypatch.setattr("md_studio.readers.epub.archive.MAX_MEMBER_BYTES", 100)
-
-    with pytest.raises(ReadError, match="exceeds"):
-        read_epub(epub)
-
-
 def test_unrelated_runtime_error_from_parsing_is_not_relabelled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -220,3 +211,14 @@ def test_unrelated_runtime_error_from_parsing_is_not_relabelled(
 
 def _explode(raw: bytes, *, source: str) -> None:
     raise RuntimeError("parser bug")
+
+
+def test_oversize_chapter_member_raises_read_error_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    big = ChapterSpec("One", "<p>x</p>" * 1000)
+    epub = build_epub(tmp_path / "big.epub", "T", [big])
+    monkeypatch.setattr("md_studio.readers.epub.archive.MAX_MEMBER_BYTES", 3000)
+
+    with pytest.raises(ReadError, match=r"OEBPS/ch0\.xhtml exceeds"):
+        read_epub(epub)

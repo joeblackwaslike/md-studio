@@ -1,8 +1,8 @@
 """Render block IR nodes to their Markdown string form (no surrounding blanks).
 
 Block rendering is mutually recursive with list rendering (lists contain
-blocks), so :mod:`md_studio.core.render.lists` is imported as a module
-and dispatched at call time to keep the import graph acyclic at definition time.
+blocks), so :mod:`md_studio.core.render.lists` is imported as a module (not by
+name) so the circular import between blocks and lists resolves at call time.
 """
 
 from md_studio.core import ir

@@ -163,3 +163,33 @@ def test_file_sink_force_interrupt_keeps_original_and_leaves_no_temp_file(
 
     assert dest.read_text(encoding="utf-8") == "old"
     assert list(tmp_path.iterdir()) == [dest]
+
+
+def test_file_sink_create_interrupt_leaves_no_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "book.md"
+    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _interrupt_midway)
+
+    with pytest.raises(_Interrupted):
+        FileSink(dest).write(_rendered(), name="book")
+
+    assert not dest.exists()
+
+
+def _unlink_denied(self: Path, missing_ok: bool = False) -> None:  # noqa: FBT001, FBT002
+    raise PermissionError("unlink denied")
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_file_sink_failed_cleanup_does_not_mask_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    force: bool,  # noqa: FBT001
+) -> None:
+    dest = tmp_path / "book.md"
+    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _fail_midway)
+    monkeypatch.setattr(Path, "unlink", _unlink_denied)
+
+    with pytest.raises(OSError, match="disk full"):
+        FileSink(dest, force=force).write(_rendered(), name="book")

@@ -31,3 +31,13 @@ class UnknownExtensionError(MdStudioError):
         self.available = available
         joined = ", ".join(available) or "(none)"
         super().__init__(f"Unknown markdown extension {name!r}; available: {joined}")
+
+
+class ExtensionLoadError(MdStudioError):
+    """Raised when a requested Markdown extension is installed but failed to load."""
+
+    def __init__(self, name: str, reason: str) -> None:
+        """Record the extension name and the load failure text."""
+        self.name = name
+        self.reason = reason
+        super().__init__(f"extension {name!r} failed to load: {reason}")

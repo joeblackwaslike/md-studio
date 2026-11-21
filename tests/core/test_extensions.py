@@ -3,7 +3,7 @@
 import pytest
 
 from md_studio.core import ir
-from md_studio.core.exceptions import UnknownExtensionError
+from md_studio.core.exceptions import ExtensionLoadError, UnknownExtensionError
 from md_studio.core.extensions import discover, resolve
 from md_studio.core.extensions import discovery as discovery_mod
 from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
@@ -127,3 +127,26 @@ def test_discovery_reserves_builtin_names(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_entry_point_group_uses_md_studio_name() -> None:
     assert discovery_mod.ENTRY_POINT_GROUP == "md_studio.extensions"
+
+
+class _BrokenEntryPoint:
+    name = "broken"
+
+    def load(self) -> type[MarkdownExtension]:
+        raise ImportError("boom: missing dependency")
+
+
+def test_resolve_reports_why_an_extension_failed_to_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(discovery_mod, "entry_points", lambda group: [_BrokenEntryPoint()])
+
+    with pytest.raises(ExtensionLoadError, match=r"extension 'broken' failed to load: .*boom"):
+        resolve(["broken"])
+
+
+def test_resolve_still_reports_unknown_names_when_another_extension_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery_mod, "entry_points", lambda group: [_BrokenEntryPoint()])
+
+    with pytest.raises(UnknownExtensionError, match="nope"):
+        resolve(["nope"])

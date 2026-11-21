@@ -8,7 +8,7 @@ length as the final render with file-absolute numbers (asserted below).
 """
 
 from md_studio.core import ir
-from md_studio.core.exceptions import OffsetOverflowError
+from md_studio.core.exceptions import MdStudioError
 from md_studio.core.frontmatter.numbers import pad_number
 from md_studio.core.frontmatter.ranges import (
     ChapterRange,
@@ -82,5 +82,5 @@ def build(
     final = render(meta, ranges)
     if len(final) != len(preliminary):  # pragma: no cover - invariant guard
         msg = "front matter size changed between passes; padding width too small"
-        raise OffsetOverflowError(msg, len(final), len(preliminary))
+        raise MdStudioError(msg)
     return final, ranges

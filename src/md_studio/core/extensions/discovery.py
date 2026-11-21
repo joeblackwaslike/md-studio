@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "md_studio.extensions"
 
+Registry = dict[str, type[MarkdownExtension]]
+Failures = dict[str, str]
+
 _BUILTINS: tuple[type[MarkdownExtension], ...] = (
     FixHeadings,
     RemoveFootnotes,
@@ -32,15 +35,22 @@ def _builtin_registry() -> dict[str, type[MarkdownExtension]]:
     return {extension_cls.name: extension_cls for extension_cls in _BUILTINS}
 
 
-def discover() -> dict[str, type[MarkdownExtension]]:
-    """Return all available extensions, merging built-ins and entry-points."""
+def discover_with_failures() -> tuple[Registry, Failures]:
+    """Return the available extensions and the load error text of each failed entry-point."""
     registry = _builtin_registry()
+    failures: Failures = {}
     for entry in entry_points(group=ENTRY_POINT_GROUP):
         if entry.name in registry:
             logger.warning("Ignoring entry-point %r: reserved built-in name", entry.name)
             continue
         try:
             registry[entry.name] = entry.load()
-        except Exception:
+        except Exception as error:
             logger.exception("Failed to load markdown extension %r", entry.name)
-    return registry
+            failures[entry.name] = f"{type(error).__name__}: {error}"
+    return registry, failures
+
+
+def discover() -> dict[str, type[MarkdownExtension]]:
+    """Return all available extensions, merging built-ins and entry-points."""
+    return discover_with_failures()[0]

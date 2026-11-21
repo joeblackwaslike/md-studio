@@ -1,8 +1,9 @@
 """Convert individual EPUB block-level elements into block IR nodes.
 
 Recursion into nested containers (list items, block quotes, footnote bodies)
-goes through :mod:`md_studio.core.extract.container`, imported as a
-module so the two-way dependency stays acyclic at definition time.
+goes through :mod:`md_studio.core.extract.container`, imported as a module (not
+by name) so the circular import between block_nodes and container resolves at
+call time.
 """
 
 from lxml import html

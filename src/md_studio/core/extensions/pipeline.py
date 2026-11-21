@@ -1,17 +1,19 @@
 """Resolve and run the configured Markdown extension pipeline."""
 
 from md_studio.core import ir
-from md_studio.core.exceptions import UnknownExtensionError
+from md_studio.core.exceptions import ExtensionLoadError, UnknownExtensionError
 from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
-from md_studio.core.extensions.discovery import discover
+from md_studio.core.extensions.discovery import discover_with_failures
 
 
 def resolve(names: list[str]) -> list[MarkdownExtension]:
-    """Instantiate the named extensions in order, raising on unknown names."""
-    registry = discover()
+    """Instantiate the named extensions in order, raising on unknown or unloadable names."""
+    registry, failures = discover_with_failures()
     resolved: list[MarkdownExtension] = []
     for name in names:
         extension_cls = registry.get(name)
+        if extension_cls is None and name in failures:
+            raise ExtensionLoadError(name, failures[name])
         if extension_cls is None:
             raise UnknownExtensionError(name, sorted(registry))
         resolved.append(extension_cls())
