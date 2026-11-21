@@ -7,12 +7,11 @@ from typing import Annotated
 
 import typer
 
+from md_studio.cli.files import convert_to_file
 from md_studio.cli.vault import VAULT_ENV, SinkChoice, convert_to_vault, open_vault_sink
-from md_studio.core.convert import convert as convert_document
 from md_studio.core.document import Document
 from md_studio.core.exceptions import MdStudioError
 from md_studio.readers.epub import read_epub
-from md_studio.sinks.file import FileSink
 
 app = typer.Typer(help="Convert EPUB sources to Markdown.", no_args_is_help=True)
 
@@ -105,10 +104,11 @@ def convert(  # noqa: WPS211 -- one parameter per CLI option
     dest = output or source.with_suffix(".md")
     if _same_file(source, dest):
         raise _fail(f"Output path is the source file: {source}")
-    sink_file = FileSink(dest, force=force)
-    written = _guarded(
-        lambda: sink_file.write(
-            convert_document(_read(source), extensions=extensions), name=source.stem
+    written, audit_path = _guarded(
+        lambda: convert_to_file(
+            _read(source), source=source, dest=dest, extensions=extensions, force=force
         )
     )
     typer.echo(f"Wrote {written}")
+    if audit_path is not None:
+        typer.echo(f"Wrote heading audit {audit_path}")
