@@ -2,19 +2,24 @@
 
 Some EPUBs mark headings with ``<div class="x">`` whose stylesheet gives the class a
 large font size instead of using ``<h1>``-``<h6>``. :func:`classify` ranks such classes
-into heading levels. The stylesheet is untrusted, so parsing is size-bounded, never
-fetches ``@import`` targets, and any parser failure means "no classification".
+into heading levels. The stylesheet is untrusted, so it is read by a small linear
+scanner (no CSS parser): only top-level ``.class { ... }`` rules are looked at, comments
+and at-rules (``@media``, ``@import``, ...) are skipped, and every step is size-capped.
 """
 
-import logging
 import re
 from functools import lru_cache
 from itertools import islice
 from types import MappingProxyType
 from typing import NamedTuple
 
+from md_studio.core.extensions import css_scan
+
 _MAX_STYLESHEET_CHARS = 1_048_576
 _MAX_RULES = 20_000
+_MAX_BODY_CHARS = 2_048
+_MAX_VALUE_CHARS = 32
+_MAX_REM = 1000.0
 _MAX_LEVEL = 6
 _MIN_HEADING_REM = 1.3
 _MIN_BOLD_HEADING_REM = 1.1
@@ -30,8 +35,8 @@ _REM_PER_UNIT = MappingProxyType({
     "%": 1 / _PERCENT,
 })
 _BOLD_WEIGHTS = frozenset(("bold", "semibold", "600", "700", "800", "900"))
-_CLASS_SELECTOR = re.compile(r"\.(-?[A-Za-z_][\w-]*)")
-_SIZE = re.compile(r"(\d+(?:\.\d+)?|\.\d+)(rem|em|px|pt|%)")
+CLASS_SELECTOR = re.compile(r"\.(-?[A-Za-z_][\w-]*)")
+SIZE = re.compile(r"(\d+(?:\.\d+)?|\.\d+)(rem|em|px|pt|%)")
 
 
 class _Candidate(NamedTuple):
@@ -44,38 +49,39 @@ class _Candidate(NamedTuple):
 
 def _size_in_rem(raw: str) -> float | None:
     """Return a CSS font size in rem, or ``None`` when it is not a plain length."""
-    match = _SIZE.fullmatch(raw.strip().lower())
+    if len(raw) > _MAX_VALUE_CHARS:
+        return None
+    match = SIZE.fullmatch(raw)
     if match is None:
         return None
     return float(match.group(1)) * _REM_PER_UNIT[match.group(2)]
 
 
-def _candidate(rule: object) -> _Candidate | None:
-    """Return the heading candidate described by a style *rule*, if any."""
-    selector = _CLASS_SELECTOR.fullmatch(getattr(rule, "selectorText", ""))
-    if selector is None:
+def _candidate(selector: str, body: str) -> _Candidate | None:
+    """Return the heading candidate for one ``selector { body }`` rule, if any."""
+    matched = CLASS_SELECTOR.fullmatch(selector)
+    if matched is None or len(body) > _MAX_BODY_CHARS:
         return None
-    style = getattr(rule, "style")  # noqa: B009 -- cssutils is untyped
-    size = _size_in_rem(style.getPropertyValue("font-size"))
-    if size is None or size > _MAX_STYLESHEET_CHARS:
+    props = css_scan.declarations(body)
+    size = _size_in_rem(props.get("font-size", ""))
+    if size is None or size > _MAX_REM:
         return None
-    bold = style.getPropertyValue("font-weight").strip().lower() in _BOLD_WEIGHTS
+    bold = props.get("font-weight", "") in _BOLD_WEIGHTS
     if size < _MIN_HEADING_REM and not (bold and size >= _MIN_BOLD_HEADING_REM):
         return None
-    uppercase = style.getPropertyValue("text-transform").strip().lower() == "uppercase"
-    return _Candidate(size, uppercase, selector.group(1))
+    uppercase = props.get("text-transform", "") == "uppercase"
+    return _Candidate(size, uppercase, matched.group(1))
 
 
 def _parse_candidates(stylesheet: str) -> dict[str, _Candidate]:
-    """Parse *stylesheet* and return its heading candidates by class name."""
-    import cssutils  # noqa: PLC0415 -- lazy: parsing machinery stays off core import
-
-    parser = cssutils.CSSParser(
-        loglevel=logging.CRITICAL, raiseExceptions=False, validate=False, fetcher=lambda _url: None
-    )
-    sheet = parser.parseString(stylesheet[:_MAX_STYLESHEET_CHARS])
-    found = (_candidate(rule) for rule in islice(sheet.cssRules, _MAX_RULES))
-    return {entry.name: entry for entry in found if entry is not None}
+    """Scan *stylesheet* and return its heading candidates by class name."""
+    found: dict[str, _Candidate] = {}
+    rules = islice(css_scan.rules(stylesheet[:_MAX_STYLESHEET_CHARS]), _MAX_RULES)
+    for selector, body in rules:
+        entry = _candidate(selector, body)
+        if entry is not None:
+            found[entry.name] = entry
+    return found
 
 
 def _assign_levels(candidates: dict[str, _Candidate]) -> dict[str, int]:
@@ -94,12 +100,8 @@ def _assign_levels(candidates: dict[str, _Candidate]) -> dict[str, int]:
 
 @lru_cache(maxsize=2)
 def _classify_cached(stylesheet: str) -> MappingProxyType[str, int]:
-    """Classify *stylesheet*, treating any parser failure as no classification."""
-    try:
-        levels = _assign_levels(_parse_candidates(stylesheet))
-    except Exception:  # untrusted input: any parser failure means no classification
-        levels = {}
-    return MappingProxyType(levels)
+    """Classify *stylesheet*, caching the result for the per-chapter calls of one run."""
+    return MappingProxyType(_assign_levels(_parse_candidates(stylesheet)))
 
 
 def classify(stylesheet: str) -> dict[str, int]:
@@ -113,11 +115,12 @@ def classify(stylesheet: str) -> dict[str, int]:
     ----------
     stylesheet:
         CSS text, possibly malformed or hostile. Only the first 1 MiB and the first
-        20000 rules are read; ``@import`` targets are never fetched.
+        20000 rules are read; ``@import`` targets are never fetched. Comments, at-rules
+        and rules whose selector is not a single class are ignored.
 
     Returns
     -------
     dict[str, int]
-        Class name to level, or ``{}`` when nothing qualifies or parsing fails.
+        Class name to level, or ``{}`` when nothing qualifies.
     """
     return dict(_classify_cached(stylesheet))

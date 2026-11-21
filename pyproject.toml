@@ -14,7 +14,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "cssutils>=2.9",
     "lxml>=5",
 ]
 
@@ -67,7 +66,7 @@ module = ["md_studio.cli", "md_studio.cli.*"]
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-module = ["lxml.*", "docling.*", "yaml.*", "cssutils", "cssutils.*"]
+module = ["lxml.*", "docling.*", "yaml.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
