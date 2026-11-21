@@ -10,11 +10,24 @@ _HEADER = (
 )
 
 
+_CELL_ESCAPES = str.maketrans({
+    "\\": r"\\",
+    "|": r"\|",
+    "`": r"\`",
+    "[": r"\[",
+    "]": r"\]",
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+})
+
+
 @dataclass(frozen=True, slots=True)
 class PromotionRecord:
     """One paragraph promoted to a heading.
 
-    ``level`` is the heading level before the renderer's chapter-depth shift.
+    ``level`` is the source heading level (1 for ``<h1>``), before the renderer demotes
+    headings under the chapter title.
     """
 
     chapter: str
@@ -36,8 +49,8 @@ class AuditLog:
 
 
 def _cell(text: str) -> str:
-    """Return *text* safe inside a table cell: one line, pipes escaped."""
-    return " ".join(text.split()).replace("|", r"\|")
+    """Return *text* safe inside a table cell: one line, Markdown and HTML neutralised."""
+    return " ".join(text.split()).translate(_CELL_ESCAPES)
 
 
 def _row(record: PromotionRecord) -> str:

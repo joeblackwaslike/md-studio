@@ -109,6 +109,22 @@ def test_audit_lists_every_promotion(tmp_path: Path) -> None:
     assert report.count("class-") == 3
 
 
+@pytest.mark.parametrize(
+    ("text", "cell"),
+    [
+        ("<img onerror=x>", "&lt;img onerror=x&gt;"),
+        ("use `code`", r"use \`code\`"),
+        ("[x](y)", r"\[x\](y)"),
+        (r"a\|b", r"a\\\|b"),
+        ("a & b", "a &amp; b"),
+    ],
+)
+def test_audit_render_neutralises_markdown_and_html_in_cells(text: str, cell: str) -> None:
+    row = audit.render([audit.PromotionRecord("C", text, "p", (), 1)]).splitlines()[-1]
+
+    assert row == f"| C | {cell} | p |  | 1 |"
+
+
 def test_audit_render_escapes_pipes_and_newlines() -> None:
     record = audit.PromotionRecord("C|1", "a | b\nc", "p", ("x",), 2)
 
@@ -177,3 +193,43 @@ def test_classify_ignores_rules_past_the_size_cap(monkeypatch: pytest.MonkeyPatc
     sheet = f".early{{font-size:2rem}}{' ' * 300}.late{{font-size:3rem}}"
 
     assert css_headings.classify(sheet) == {"early": 1}
+
+
+def _first_block_promoted(tmp_path: Path, title: str, *extensions: str):
+    body = '<div class="class-part">Dedication</div><div class="class-body">For you.</div>'
+    epub = build_epub(
+        tmp_path / "t.epub", "T", [ChapterSpec(title, body)], stylesheets=(CSS_HEADINGS_STYLESHEET,)
+    )
+    return convert(read_epub(epub), extensions=list(extensions))
+
+
+@pytest.mark.parametrize("title", ["xhtml-0-2", "ch1", "part3", "chapter_01", "Split-12"])
+def test_file_stem_titles_are_replaced(tmp_path: Path, title: str) -> None:
+    rendered = _first_block_promoted(tmp_path, title, "fix-headings")
+
+    assert [chapter.title for chapter in rendered.chapters] == ["Dedication"]
+
+
+@pytest.mark.parametrize("title", ["1984", "Web3", "COVID-19", "A1", "3.1", "Intro 2"])
+def test_real_titles_with_digits_are_kept(tmp_path: Path, title: str) -> None:
+    rendered = _first_block_promoted(tmp_path, title, "fix-headings")
+
+    assert [chapter.title for chapter in rendered.chapters] == [title]
+
+
+def test_stem_like_title_is_left_alone_without_fix_headings(tmp_path: Path) -> None:
+    rendered = _first_block_promoted(tmp_path, "xhtml-0-2")
+
+    assert [chapter.title for chapter in rendered.chapters] == ["xhtml-0-2"]
+
+
+def test_uppercase_does_not_split_a_size_tie() -> None:
+    sheet = ".a{font-size:2rem}.b{font-size:2rem;text-transform:uppercase}.c{font-size:1.5rem}"
+
+    assert css_headings.classify(sheet) == {"a": 1, "b": 1, "c": 2}
+
+
+def test_uppercase_ranks_after_size_not_before() -> None:
+    sheet = ".big{font-size:2rem}.small{font-size:1.5rem;text-transform:uppercase}"
+
+    assert css_headings.classify(sheet) == {"big": 1, "small": 2}

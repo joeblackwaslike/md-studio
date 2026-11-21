@@ -79,3 +79,26 @@ def test_sup_and_sub_render_as_plain_text_today(tmp_path: Path) -> None:
     body = _body(tmp_path, "H<sub>2</sub>O and x<sup>2</sup>")
 
     assert "H2O and x2" in body
+
+
+def test_strikethrough_wrapping_a_link_and_an_image(tmp_path: Path) -> None:
+    body = _body(tmp_path, '<s><a href="http://u">t</a></s> <s><img alt="pic" src="x.png"/></s>')
+
+    assert "~~[t](http://u)~~ ~~pic~~" in body
+
+
+def test_del_inside_code_adds_no_tildes_today(tmp_path: Path) -> None:
+    specs = [ChapterSpec("One", "<pre>a <del>b</del> c</pre><p><code>x<del>y</del></code></p>")]
+    epub = build_epub(tmp_path / "b.epub", "T", specs)
+
+    body = convert(read_epub(epub)).body
+
+    assert "a b c" in body
+    assert "`xy`" in body
+    assert "~" not in body
+
+
+def test_padded_strikethrough_keeps_its_padding_today(tmp_path: Path) -> None:
+    body = _body(tmp_path, "a<del> x </del>b")
+
+    assert "a~~ x ~~b" in body

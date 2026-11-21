@@ -6,8 +6,8 @@ the source supplies a stylesheet, classes it styles as headings (see
 :mod:`md_studio.core.extensions.css_headings`) decide the level; otherwise an inline
 ``font-size`` or a heading-ish class name does. Heading levels here are pre-shift;
 the renderer demotes them by one under the chapter ``##`` heading. Every promotion
-is logged to ``ctx.audit``. A chapter whose title is a bare file stem (no label in the
-source, e.g. ``xhtml-0-2``) takes the text of its first block when that block is promoted,
+is logged to ``ctx.audit``. A chapter whose title is a bare file stem (the reader's fallback
+when the source has no label, e.g. ``xhtml-0-2`` or ``ch1``) takes the text of its first block when that block is promoted,
 matching the usual first-heading title fallback for real ``<h1>``-``<h3>`` headings.
 """
 
@@ -25,7 +25,11 @@ _FONT_SIZE_RE = re.compile(
     r"font-size\s*:\s*(\d+(?:\.\d+)?|\.\d+)\s*(px|pt|em|rem|%)?", re.IGNORECASE
 )
 _HEADING_CLASS_RE = re.compile(r"\b(?:h[1-6]|title|chapter-?title|heading|head)\b", re.IGNORECASE)
-_FILE_STEM_RE = re.compile(r"[\w.-]*\d[\w.-]*")
+_FILE_STEM_RE = re.compile(
+    r"(?:xhtml|html|ch|chap|chapter|part|sec|section|split|content|text|file|item|page|id)"
+    r"[-_.]?\d+(?:[-_.]\d+)*",
+    re.IGNORECASE,
+)
 _EM_PX = 16.0
 _CSS_PX_PER_INCH = 96.0
 _CSS_PT_PER_INCH = 72.0
