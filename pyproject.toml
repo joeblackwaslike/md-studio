@@ -1,0 +1,174 @@
+[project]
+name = "md-studio"
+version = "0.1.0"
+description = "Convert EPUB, HTML, PDF and arXiv sources to Markdown."
+authors = [{ name = "Joe Black", email = "me@joeblack.nyc" }]
+readme = "README.md"
+keywords = ["python", "markdown", "epub", "pdf", "arxiv"]
+requires-python = ">=3.12,<4.0"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "lxml>=5",
+]
+
+[project.optional-dependencies]
+cli = ["typer>=0.12", "rich>=13.7"]
+pdf = ["docling>=2.151"]
+
+[project.scripts]
+md-studio = "md_studio.cli:app"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/joeblackwaslike/md-studio/issues"
+Homepage = "https://github.com/joeblackwaslike/md-studio"
+Repository = "https://github.com/joeblackwaslike/md-studio"
+
+[dependency-groups]
+dev = [
+    "mypy~=1.18.2",
+    "pytest~=8.4.2",
+    "pytest-asyncio>=0.26",
+    "pytest-mock~=3.15.1",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+    "ruff~=0.14.0",
+    "typer>=0.12",
+    "wemake-python-styleguide~=1.4.0",
+]
+
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.mypy]
+files = ["src"]
+strict = true
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["md_studio.cli", "md_studio.cli.*"]
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = ["lxml.*", "docling.*", "yaml.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "B",
+    "C4",
+    "C90",
+    "COM",
+    "D",
+    "DTZ",
+    "E",
+    "ERA",
+    "EXE",
+    "F",
+    "FBT",
+    "FLY",
+    "FURB",
+    "G",
+    "I",
+    "ICN",
+    "ISC",
+    "LOG",
+    "N",
+    "PERF",
+    "PIE",
+    "PL",
+    "PT",
+    "PTH",
+    "Q",
+    "RET",
+    "RSE",
+    "RUF",
+    "S",
+    "SIM",
+    "SLF",
+    "SLOT",
+    "T100",
+    "TRY",
+    "UP",
+    "W",
+    "YTT",
+]
+ignore = [
+    "A005",
+    "COM812",
+    "D100",
+    "D104",
+    "D106",
+    "D203",
+    "D212",
+    "D401",
+    "D404",
+    "D405",
+    "E501",
+    "E731",
+    "ISC001",
+    "ISC003",
+    "PLR09",
+    "PLR2004",
+    "PLR6301",
+    "TRY003",
+]
+external = ["WPS"]
+
+[tool.ruff.lint.flake8-import-conventions]
+banned-from = ["ast"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 24
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"tests/**/*.py" = [
+    "D101",
+    "D102",
+    "D103",
+    "S101",
+    "S105",
+    "S108",
+    "S404",
+    "S603",
+    "S607",
+]
+
+[tool.ruff.format]
+preview = true
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = false
