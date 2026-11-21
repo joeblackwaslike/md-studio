@@ -38,8 +38,9 @@ def _inline_text(node: ir.Inline) -> str:
 def shift_level(level: int) -> int:
     """Demote a heading by one level, clamped to the max heading depth.
 
-    Chapter titles render as ``##`` (level 2), so an in-chapter ``<h1>`` becomes
-    ``###`` and so on, preserving relative structure under the chapter heading.
+    Chapter titles render as ``##`` (level 2). An in-chapter ``<h1>`` becomes level 2
+    (``##``, the same depth as the chapter title), ``<h2>`` becomes level 3, and so
+    on up to level 6, where deeper headings stay clamped.
     """
     return min(level + 1, _MAX_HEADING_LEVEL)
 

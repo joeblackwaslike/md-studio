@@ -33,6 +33,8 @@ def preliminary_ranges(
 
 def _spans(starts: list[int], total: int) -> list[tuple[int, int]]:
     """Pair each start with its end (one before the next; *total* for the last)."""
+    if not starts:
+        return []
     ends = [start - 1 for start in starts[1:]]
     ends.append(total)
     return list(zip(starts, ends, strict=True))

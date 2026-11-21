@@ -3,9 +3,10 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from md_studio.core.convert import convert
-from md_studio.core.document import Document
+from md_studio.core.document import Document, DocumentMetadata
 from md_studio.core.exceptions import UnknownExtensionError
 from md_studio.readers.epub import read_epub
 from tests.readers._epub import ChapterSpec, build_epub
@@ -47,3 +48,14 @@ def test_rendered_chapters_are_an_immutable_tuple_of_ranges(tmp_path: Path) -> N
 
     assert isinstance(chapters, tuple)
     assert [entry.title for entry in chapters] == ["One", "Two"]
+
+
+def test_document_without_chapters_converts_to_front_matter_only() -> None:
+    rendered = convert(Document(DocumentMetadata(title="Empty")))
+
+    assert rendered.chapters == ()
+    assert rendered.body == ""
+    parsed = yaml.safe_load(rendered.front_matter.split("---\n")[1])
+    assert parsed["title"] == "Empty"
+    assert not parsed["chapters"]
+    assert rendered.text == rendered.front_matter
