@@ -4,6 +4,11 @@ from pathlib import Path
 from typing import Protocol
 
 from md_studio.core.convert import RenderedMarkdown
+from md_studio.core.exceptions import MdStudioError
+
+
+class SinkError(MdStudioError):
+    """A sink cannot accept output, for example because its destination is unusable."""
 
 
 class Sink(Protocol):

@@ -1,11 +1,13 @@
 """Typer application exposing the ``md-studio`` commands."""
 
+from collections.abc import Callable
 from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated
 
 import typer
 
+from md_studio.cli.vault import VAULT_ENV, SinkChoice, convert_to_vault, require_vault
 from md_studio.core.convert import convert as convert_document
 from md_studio.core.document import Document
 from md_studio.core.exceptions import MdStudioError
@@ -56,13 +58,10 @@ def _same_file(first: Path, second: Path) -> bool:
         raise _fail(f"Cannot compare {second} with the source: {error}") from error
 
 
-def _convert_to_file(
-    source: Path, dest: Path, extensions: list[str] | None, *, force: bool
-) -> Path:
-    """Read, convert and write *source*, mapping expected failures to a CLI exit."""
-    sink = FileSink(dest, force=force)
+def _guarded(action: Callable[[], Path]) -> Path:
+    """Run *action*, mapping expected failures to a CLI exit."""
     try:
-        return sink.write(convert_document(_read(source), extensions=extensions), name=source.stem)
+        return action()
     except (MdStudioError, OSError) as error:
         raise _fail(str(error)) from error
 
@@ -73,7 +72,7 @@ def main() -> None:
 
 
 @app.command()
-def convert(
+def convert(  # noqa: WPS211 -- one parameter per CLI option
     source: Annotated[Path, typer.Argument(help="Source file to convert.")],
     output: Annotated[
         Path | None,
@@ -84,11 +83,32 @@ def convert(
         typer.Option("--ext", help="Comma-separated extension names, in pipeline order."),
     ] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing file.")] = False,  # noqa: FBT002
+    sink: Annotated[
+        SinkChoice, typer.Option("--sink", help="Where to write the Markdown.")
+    ] = SinkChoice.LOCAL,
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", envvar=VAULT_ENV, help="Obsidian vault directory."),
+    ] = None,
 ) -> None:
-    """Convert SOURCE to a Markdown file."""
-    dest = output or source.with_suffix(".md")
+    """Convert SOURCE to a Markdown file or an Obsidian note."""
     extensions = _split_names(ext)
+    if sink is SinkChoice.VAULT:
+        vault_dir = _guarded(lambda: require_vault(vault, output=output, force=force))
+        written = _guarded(
+            lambda: convert_to_vault(
+                _read(source), source=source, vault=vault_dir, extensions=extensions
+            )
+        )
+        typer.echo(f"Wrote {written}")
+        return
+    dest = output or source.with_suffix(".md")
     if _same_file(source, dest):
         raise _fail(f"Output path is the source file: {source}")
-    written = _convert_to_file(source, dest, extensions, force=force)
+    sink_file = FileSink(dest, force=force)
+    written = _guarded(
+        lambda: sink_file.write(
+            convert_document(_read(source), extensions=extensions), name=source.stem
+        )
+    )
     typer.echo(f"Wrote {written}")

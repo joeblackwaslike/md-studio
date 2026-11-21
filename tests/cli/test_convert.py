@@ -297,3 +297,64 @@ def test_cli_reports_unpreservable_group_as_one_line_error(
     assert outcome.output.startswith("Error: Cannot preserve group of")
     assert len(outcome.output.strip().splitlines()) == 1
     assert dest.read_bytes() == b"original"
+
+
+def test_cli_obsidian_sink_writes_note_into_vault(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", vault)
+
+    assert outcome.exit_code == 0, outcome.output
+    note = vault / "Book Notes" / "book.md"
+    assert "book-note" in note.read_text(encoding="utf-8")
+    assert not (tmp_path / "book.md").exists()
+
+
+def test_cli_obsidian_sink_reads_vault_from_environment(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    outcome = CliRunner().invoke(
+        app,
+        ["convert", str(_epub(tmp_path)), "--sink", "obsidian"],
+        env={"MD_STUDIO_VAULT": str(vault)},
+    )
+
+    assert outcome.exit_code == 0, outcome.output
+    assert (vault / "Book Notes" / "book.md").exists()
+
+
+def test_cli_obsidian_without_vault_is_one_line_error(tmp_path: Path) -> None:
+    outcome = CliRunner().invoke(
+        app,
+        ["convert", str(_epub(tmp_path)), "--sink", "obsidian"],
+        env={"MD_STUDIO_VAULT": ""},
+    )
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: ")
+    assert "MD_STUDIO_VAULT" in outcome.output
+    assert len(outcome.output.strip().splitlines()) == 1
+
+
+def test_cli_obsidian_rejects_output_option(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    outcome = _convert(
+        _epub(tmp_path), "--sink", "obsidian", "--vault", vault, "-o", tmp_path / "x.md"
+    )
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: ")
+    assert len(outcome.output.strip().splitlines()) == 1
+
+
+def test_cli_obsidian_missing_vault_directory_is_one_line_error(tmp_path: Path) -> None:
+    outcome = _convert(_epub(tmp_path), "--sink", "obsidian", "--vault", tmp_path / "nope")
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: ")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert not (tmp_path / "nope").exists()
