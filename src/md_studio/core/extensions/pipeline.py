@@ -4,23 +4,34 @@ from md_studio.core import ir
 from md_studio.core.document import Document
 from md_studio.core.exceptions import ExtensionLoadError, UnknownExtensionError
 from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
-from md_studio.core.extensions.discovery import Registered, discover_with_failures
+from md_studio.core.extensions.discovery import (
+    Failures,
+    Registered,
+    Registry,
+    discover_with_failures,
+)
 from md_studio.core.extensions.source_fix import SourceFix
 
 Resolved = MarkdownExtension | SourceFix
 
 
 def _instantiate(name: str, registered: Registered) -> Resolved:
-    """Construct *registered*, reporting a failed lazy import or an unusable object."""
+    """Construct *registered*, reporting any constructor failure as a load error."""
     try:
-        instance = registered()
-    except ImportError as error:
+        return registered()
+    except Exception as error:
         raise ExtensionLoadError(name, f"{type(error).__name__}: {error}") from error
-    if not isinstance(instance, MarkdownExtension) and not callable(
-        getattr(instance, "apply", None)
-    ):
-        raise ExtensionLoadError(name, "neither a MarkdownExtension nor a SourceFix (no apply)")
-    return instance
+
+
+def _lookup(name: str, registry: Registry, failures: Failures) -> Registered:
+    """Return the registration for *name*, raising when it is unknown or unusable."""
+    failure = failures.get(name)
+    if failure is not None:
+        raise ExtensionLoadError(name, failure)
+    registered = registry.get(name)
+    if registered is None:
+        raise UnknownExtensionError(name, sorted(registry))
+    return registered
 
 
 def resolve(names: list[str]) -> list[Resolved]:
@@ -31,18 +42,11 @@ def resolve(names: list[str]) -> list[Resolved]:
     UnknownExtensionError
         When a name is not registered.
     ExtensionLoadError
-        When an entry-point failed to import or registered an unusable object.
+        When the name's entry-point failed to load, registered an unusable object, was dropped
+        because the name was already registered, or its constructor raised.
     """
     registry, failures = discover_with_failures()
-    resolved: list[Resolved] = []
-    for name in names:
-        extension_cls = registry.get(name)
-        if extension_cls is None and name in failures:
-            raise ExtensionLoadError(name, failures[name])
-        if extension_cls is None:
-            raise UnknownExtensionError(name, sorted(registry))
-        resolved.append(_instantiate(name, extension_cls))
-    return resolved
+    return [_instantiate(name, _lookup(name, registry, failures)) for name in names]
 
 
 def split(resolved: list[Resolved]) -> tuple[list[SourceFix], list[MarkdownExtension]]:

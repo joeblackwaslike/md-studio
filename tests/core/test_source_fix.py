@@ -77,16 +77,21 @@ class _SecondDuplicate:
 
 
 class _EntryPoint:
-    def __init__(self, registered: type) -> None:
-        self.name = registered.name
+    def __init__(self, registered: object, name: str | None = None) -> None:
+        self.name = getattr(registered, "name", "unnamed") if name is None else name
         self._registered = registered
 
-    def load(self) -> type:
+    def load(self) -> object:
         return self._registered
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, *registered: type) -> None:
+def _install(monkeypatch: pytest.MonkeyPatch, *registered: object) -> None:
     points = [_EntryPoint(entry) for entry in registered]
+    monkeypatch.setattr(discovery_mod, "entry_points", lambda group: points)
+
+
+def _install_named(monkeypatch: pytest.MonkeyPatch, name: str, registered: object) -> None:
+    points = [_EntryPoint(registered, name)]
     monkeypatch.setattr(discovery_mod, "entry_points", lambda group: points)
 
 
@@ -142,7 +147,7 @@ def test_source_fix_cannot_shadow_a_builtin(monkeypatch: pytest.MonkeyPatch) -> 
     assert discover()["fix-headings"] is discovery_mod.FixHeadings
 
 
-def test_name_collision_between_source_fix_and_extension_is_rejected(
+def test_first_registered_name_wins_over_a_later_colliding_kind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, _FirstDuplicate, _SecondDuplicate)
@@ -163,3 +168,124 @@ def test_registered_object_that_is_neither_kind_fails_to_load(
 
     with pytest.raises(ExtensionLoadError, match="not-a-fix"):
         resolve(["not-a-fix"])
+
+
+class _Both(MarkdownExtension):
+    name = "both"
+
+    def apply(self, document: Document) -> Document:
+        return document
+
+
+class _EmptyName:
+    name: ClassVar[str] = ""
+
+    def apply(self, document: Document) -> Document:
+        return document
+
+
+class _NoName:
+    def apply(self, document: Document) -> Document:
+        return document
+
+
+class _NonStringName:
+    name = 3
+
+    def apply(self, document: Document) -> Document:
+        return document
+
+
+class _ApplyNotCallable:
+    name: ClassVar[str] = "apply-not-callable"
+    apply = "nope"
+
+
+class _Interrupting(MarkdownExtension):
+    name = "interrupting"
+
+    def __init__(self) -> None:
+        raise KeyboardInterrupt
+
+
+class _Crashing(MarkdownExtension):
+    name = "crashing"
+
+    def __init__(self) -> None:
+        raise RuntimeError("constructor exploded")
+
+
+def _fix_instance() -> _AppendA:
+    return _AppendA()
+
+
+@pytest.mark.parametrize(
+    ("name", "registered", "reason"),
+    [
+        ("str", "not a class", "not a class"),
+        ("func", _fix_instance, "not a class"),
+        ("instance", _AppendA(), "not a class"),
+        ("both", _Both, "both"),
+        ("empty", _EmptyName, "name"),
+        ("noname", _NoName, "name"),
+        ("intname", _NonStringName, "name"),
+        ("apply-not-callable", _ApplyNotCallable, "apply"),
+    ],
+)
+def test_unusable_registration_is_a_load_error_naming_the_reason(
+    monkeypatch: pytest.MonkeyPatch, name: str, registered: object, reason: str
+) -> None:
+    _install_named(monkeypatch, name, registered)
+
+    with pytest.raises(ExtensionLoadError, match=rf"extension '{name}' failed to load: .*{reason}"):
+        resolve([name])
+
+
+def test_unusable_registration_is_not_discoverable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_named(monkeypatch, "both", _Both)
+
+    assert "both" not in discover()
+
+
+def test_constructor_failure_becomes_a_load_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, _Crashing)
+
+    with pytest.raises(
+        ExtensionLoadError, match=r"'crashing' failed to load: RuntimeError: .*exploded"
+    ):
+        resolve(["crashing"])
+
+
+def test_keyboard_interrupt_during_construction_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, _Interrupting)
+
+    with pytest.raises(KeyboardInterrupt):
+        resolve(["interrupting"])
+
+
+def test_requesting_a_name_whose_registration_was_dropped_is_a_load_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, _SourceFixNamedLikeBuiltin)
+
+    with pytest.raises(
+        ExtensionLoadError, match=r"extension 'fix-headings' failed to load: .*already registered"
+    ):
+        resolve(["fix-headings"])
+
+
+def test_collision_does_not_affect_other_requested_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, _SourceFixNamedLikeBuiltin)
+
+    assert [type(entry) for entry in resolve(["reformat-toc"])] == [discovery_mod.ReformatToc]
+
+
+def test_requesting_a_dropped_duplicate_between_third_parties_is_a_load_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, _FirstDuplicate, _SecondDuplicate)
+
+    with pytest.raises(
+        ExtensionLoadError, match=r"extension 'dup' failed to load: .*already registered"
+    ):
+        resolve(["dup"])

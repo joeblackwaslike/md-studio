@@ -8,7 +8,8 @@ install trusted packages.
 """
 
 import logging
-from importlib.metadata import entry_points
+from importlib.metadata import EntryPoint, entry_points
+from typing import cast
 
 from md_studio.core.extensions.base import MarkdownExtension
 from md_studio.core.extensions.fix_broken_links import FixBrokenLinks
@@ -38,18 +39,55 @@ def _builtin_registry() -> Registry:
     return {registered.name: registered for registered in BUILTINS}
 
 
+def _problem(candidate: object) -> str | None:
+    """Return why *candidate* cannot be registered, or ``None`` when it is usable."""
+    if not isinstance(candidate, type):
+        return "TypeError: not a class"
+    name = getattr(candidate, "name", None)
+    if not isinstance(name, str) or not name:
+        return "TypeError: needs a non-empty string `name`"
+    is_extension = issubclass(candidate, MarkdownExtension)
+    has_apply = callable(getattr(candidate, "apply", None))
+    if is_extension and has_apply:
+        return "TypeError: is both a MarkdownExtension and a SourceFix (it defines `apply`)"
+    if not is_extension and not has_apply:
+        return (
+            "TypeError: neither a MarkdownExtension subclass nor a SourceFix (no callable `apply`)"
+        )
+    return None
+
+
+def _load(entry: EntryPoint) -> Registered:
+    """Load *entry* and return it, raising ``TypeError`` when it is not a usable class."""
+    loaded = entry.load()
+    problem = _problem(loaded)
+    if problem is not None:
+        raise TypeError(problem.removeprefix("TypeError: "))
+    return cast(Registered, loaded)
+
+
 def discover_with_failures() -> tuple[Registry, Failures]:
-    """Return the available extensions and the load error text of each failed entry-point."""
+    """Return the available registrations and why some names are unusable.
+
+    The first registration of a name wins (built-ins first). A later entry-point that
+    reuses a taken name is dropped and recorded in the failures under that name, so
+    asking for the name explicitly can report the collision; so are entry-points that
+    fail to load or register something unusable.
+    """
     registry = _builtin_registry()
     failures: Failures = {}
     for entry in entry_points(group=ENTRY_POINT_GROUP):
-        if entry.name in registry:
+        taken = registry.get(entry.name)
+        if taken is not None:
             logger.warning("Ignoring entry-point %r: name already registered", entry.name)
+            failures[entry.name] = (
+                f"name already registered by {taken.__name__}; entry-point ignored"
+            )
             continue
         try:
-            registry[entry.name] = entry.load()
+            registry[entry.name] = _load(entry)
         except Exception as error:
-            logger.debug("Failed to load markdown extension %r", entry.name, exc_info=True)
+            logger.debug("Failed to load extension %r", entry.name, exc_info=True)
             failures[entry.name] = f"{type(error).__name__}: {error}"
     return registry, failures
 
