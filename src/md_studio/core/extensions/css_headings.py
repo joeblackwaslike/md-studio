@@ -13,8 +13,8 @@ from itertools import islice
 from types import MappingProxyType
 from typing import NamedTuple
 
-_MAX_STYLESHEET_CHARS = 131_072
-_MAX_RULES = 5_000
+_MAX_STYLESHEET_CHARS = 1_048_576
+_MAX_RULES = 20_000
 _MAX_LEVEL = 6
 _MIN_HEADING_REM = 1.3
 _MIN_BOLD_HEADING_REM = 1.1
@@ -112,8 +112,8 @@ def classify(stylesheet: str) -> dict[str, int]:
     Parameters
     ----------
     stylesheet:
-        CSS text, possibly malformed or hostile. Only the first 128 KiB and the first
-        5000 rules are read; ``@import`` targets are never fetched.
+        CSS text, possibly malformed or hostile. Only the first 1 MiB and the first
+        20000 rules are read; ``@import`` targets are never fetched.
 
     Returns
     -------

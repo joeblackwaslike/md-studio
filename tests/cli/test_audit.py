@@ -72,3 +72,14 @@ def test_cli_obsidian_sink_ignores_audit(tmp_path: Path) -> None:
     assert outcome.exit_code == 0, outcome.output
     assert (vault / "Book Notes" / "styled.md").exists()
     assert _audits(tmp_path) == []
+
+
+def test_cli_refused_audit_leaves_no_markdown_behind(tmp_path: Path) -> None:
+    source = build_css_headings_epub(tmp_path / "styled.epub")
+    (tmp_path / "styled.audit.md").write_text("old", encoding="utf-8")
+
+    outcome = _run(source, "--ext", "fix-headings")
+
+    assert outcome.exit_code == 1
+    assert "styled.audit.md" in outcome.output
+    assert not (tmp_path / "styled.md").exists()

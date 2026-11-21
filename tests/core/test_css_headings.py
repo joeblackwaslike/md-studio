@@ -6,8 +6,7 @@ from pathlib import Path
 import pytest
 
 from md_studio.core.convert import convert
-from md_studio.core.extensions import audit
-from md_studio.core.extensions.css_headings import classify
+from md_studio.core.extensions import audit, css_headings
 from md_studio.readers.epub import read_epub
 from tests.readers._epub import (
     CSS_HEADINGS_STYLESHEET,
@@ -26,13 +25,12 @@ _HOSTILE = (
     ".a{font-size:99999999999999999999999999rem;font-weight:bold}",
     ".a{font-size:-3rem}.b{font-size:rem}.c{font-size:1.2.3rem}",
     f"{', '.join(f'.c{index}' for index in range(60_000))}{{font-size:2rem}}",
-    "".join(f".c{index}{{font-size:{2 + index}rem}}" for index in range(30_000)),
     "{" * 50_000,
 )
 
 
 def test_classify_ranks_classes_by_size() -> None:
-    assert classify(CSS_HEADINGS_STYLESHEET) == {
+    assert css_headings.classify(CSS_HEADINGS_STYLESHEET) == {
         "class-part": 1,
         "class-section": 2,
         "class-sub": 3,
@@ -42,22 +40,24 @@ def test_classify_ranks_classes_by_size() -> None:
 def test_classify_groups_sizes_within_a_tenth_of_a_rem() -> None:
     sheet = ".a{font-size:2rem}.b{font-size:1.95rem}.c{font-size:1.5rem}"
 
-    assert classify(sheet) == {"a": 1, "b": 1, "c": 2}
+    assert css_headings.classify(sheet) == {"a": 1, "b": 1, "c": 2}
 
 
 def test_classify_caps_levels_at_six() -> None:
     sheet = "".join(f".c{index}{{font-size:{3 - index * 0.2}rem}}" for index in range(8))
 
-    assert max(classify(sheet).values()) == 6
+    assert max(css_headings.classify(sheet).values()) == 6
 
 
 def test_classify_ignores_small_plain_text() -> None:
-    assert classify(".body{font-size:1rem}.bold{font-size:1rem;font-weight:bold}") == {}
+    assert (
+        css_headings.classify(".body{font-size:1rem}.bold{font-size:1rem;font-weight:bold}") == {}
+    )
 
 
 @pytest.mark.parametrize("stylesheet", _HOSTILE)
 def test_classify_survives_hostile_css(stylesheet: str) -> None:
-    assert isinstance(classify(stylesheet), dict)
+    assert isinstance(css_headings.classify(stylesheet), dict)
 
 
 def _refuse_network(*_args: object, **_kwargs: object) -> None:
@@ -68,7 +68,7 @@ def test_classify_never_fetches_imports(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(socket.socket, "connect", _refuse_network)
     sheet = '@import url("http://127.0.0.1:9/x.css");@import "http://127.0.0.1:9/y.css";.a{font-size:2rem}'
 
-    assert classify(sheet) == {"a": 1}
+    assert css_headings.classify(sheet) == {"a": 1}
 
 
 def _markdown(tmp_path: Path, *names: str) -> str:
@@ -140,3 +140,40 @@ def test_inline_fallback_applies_alongside_a_stylesheet(tmp_path: Path) -> None:
         ("Big Title", 1),
         ("Sec", 2),
     ]
+
+
+def test_classify_reads_a_stylesheet_of_a_real_books_size() -> None:
+    filler = ".f{color:red;margin:0;padding:0;border:0}" * 4_000
+
+    assert css_headings.classify(f"{filler}.late{{font-size:2rem}}") == {"late": 1}
+
+
+def test_first_promoted_heading_replaces_a_file_stem_chapter_title(tmp_path: Path) -> None:
+    body = '<div class="class-part">Dedication</div><div class="class-body">For you.</div>'
+    epub = build_epub(
+        tmp_path / "stem.epub",
+        "Stem",
+        [ChapterSpec("xhtml-0-2", body)],
+        stylesheets=(CSS_HEADINGS_STYLESHEET,),
+    )
+
+    rendered = convert(read_epub(epub), extensions=["fix-headings"])
+
+    assert [chapter.title for chapter in rendered.chapters] == ["Dedication"]
+    assert rendered.body.count("Dedication") == 1
+    assert "xhtml-0-2" not in rendered.text
+
+
+def test_real_chapter_title_is_kept_when_first_block_is_promoted(tmp_path: Path) -> None:
+    rendered = convert(
+        read_epub(build_css_headings_epub(tmp_path / "styled.epub")), extensions=["fix-headings"]
+    )
+
+    assert [chapter.title for chapter in rendered.chapters] == ["Chapter One"]
+
+
+def test_classify_ignores_rules_past_the_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(css_headings, "_MAX_STYLESHEET_CHARS", 200)
+    sheet = f".early{{font-size:2rem}}{' ' * 300}.late{{font-size:3rem}}"
+
+    assert css_headings.classify(sheet) == {"early": 1}

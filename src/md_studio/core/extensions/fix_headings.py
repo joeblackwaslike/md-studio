@@ -6,7 +6,9 @@ the source supplies a stylesheet, classes it styles as headings (see
 :mod:`md_studio.core.extensions.css_headings`) decide the level; otherwise an inline
 ``font-size`` or a heading-ish class name does. Heading levels here are pre-shift;
 the renderer demotes them by one under the chapter ``##`` heading. Every promotion
-is logged to ``ctx.audit``.
+is logged to ``ctx.audit``. A chapter whose title is a bare file stem (no label in the
+source, e.g. ``xhtml-0-2``) takes the text of its first block when that block is promoted,
+matching the usual first-heading title fallback for real ``<h1>``-``<h3>`` headings.
 """
 
 import re
@@ -23,6 +25,7 @@ _FONT_SIZE_RE = re.compile(
     r"font-size\s*:\s*(\d+(?:\.\d+)?|\.\d+)\s*(px|pt|em|rem|%)?", re.IGNORECASE
 )
 _HEADING_CLASS_RE = re.compile(r"\b(?:h[1-6]|title|chapter-?title|heading|head)\b", re.IGNORECASE)
+_FILE_STEM_RE = re.compile(r"[\w.-]*\d[\w.-]*")
 _EM_PX = 16.0
 _CSS_PX_PER_INCH = 96.0
 _CSS_PT_PER_INCH = 72.0
@@ -63,14 +66,9 @@ def _level_for_size(size: float) -> int:
     return 4
 
 
-def _stylesheet_level(meta: ir.Meta, levels: Mapping[str, int]) -> int:
-    """Return the level the stylesheet gives the first matching class, or ``0``."""
-    return next((levels[name] for name in meta.classes if name in levels), 0)
-
-
 def _heading_level(meta: ir.Meta, levels: Mapping[str, int]) -> int:
     """Return the heading level a styled paragraph should become, or ``0``."""
-    from_stylesheet = _stylesheet_level(meta, levels)
+    from_stylesheet = next(filter(None, map(levels.get, meta.classes)), 0)
     if from_stylesheet:
         return from_stylesheet
     size = _font_size_px(meta.style)
@@ -94,13 +92,23 @@ def _promote(block: ir.Block, levels: Mapping[str, int]) -> ir.Block:
     return ir.Heading(level=level, children=block.children, meta=block.meta)
 
 
-def _log_promotions(chapter: ir.ChapterIR, after: tuple[ir.Block, ...], audit: AuditLog) -> None:
-    """Record each block that became a heading when *chapter*'s blocks turned into *after*."""
-    for old, new in zip(chapter.blocks, after, strict=True):
+def _retitle(chapter: ir.ChapterIR, blocks: tuple[ir.Block, ...]) -> str:
+    """Return the chapter title, taking a file-stem-like one from a promoted first heading."""
+    first = blocks[0] if blocks else None
+    if not isinstance(first, ir.Heading) or first is chapter.blocks[0]:
+        return chapter.title
+    if not _FILE_STEM_RE.fullmatch(chapter.title):
+        return chapter.title
+    return text_of_inlines(first.children).strip() or chapter.title
+
+
+def _log_promotions(before: tuple[ir.Block, ...], after: ir.ChapterIR, audit: AuditLog) -> None:
+    """Record each block of *after* that became a heading relative to *before*."""
+    for old, new in zip(before, after.blocks, strict=True):
         if isinstance(new, ir.Heading) and new is not old:
             text = text_of_inlines(new.children).strip()
             was, classes = new.meta.tag, new.meta.classes
-            audit.add(PromotionRecord(chapter.title, text, was, classes, new.level))
+            audit.add(PromotionRecord(after.title, text, was, classes, new.level))
 
 
 class FixHeadings(MarkdownExtension):
@@ -112,5 +120,8 @@ class FixHeadings(MarkdownExtension):
         """Return *chapter* with styled heading-like paragraphs promoted."""
         levels = classify(ctx.stylesheet) if ctx.stylesheet else {}
         blocks = tuple(_promote(block, levels) for block in chapter.blocks)
-        _log_promotions(chapter, blocks, ctx.audit)
-        return ir.ChapterIR(title=chapter.title, blocks=blocks, footnotes=chapter.footnotes)
+        promoted = ir.ChapterIR(
+            title=_retitle(chapter, blocks), blocks=blocks, footnotes=chapter.footnotes
+        )
+        _log_promotions(chapter.blocks, promoted, ctx.audit)
+        return promoted
