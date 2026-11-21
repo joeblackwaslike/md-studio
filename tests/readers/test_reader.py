@@ -66,13 +66,95 @@ def test_missing_container_raises(tmp_path: Path) -> None:
         read_epub(path)
 
 
+def _read_members(epub: Path) -> dict[str, bytes]:
+    """Return every member of *epub* by name."""
+    with zipfile.ZipFile(epub) as archive:
+        return {name: archive.read(name) for name in archive.namelist()}
+
+
+def _rewrite_zip(
+    epub: Path,
+    *,
+    drop: tuple[str, ...] = (),
+    replace: dict[str, bytes] | None = None,
+) -> Path:
+    """Rewrite *epub* in place without the *drop* members and with *replace* contents."""
+    swaps = replace or {}
+    members = _read_members(epub)
+    with zipfile.ZipFile(epub, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, payload in members.items():
+            if name not in drop:
+                target.writestr(name, swaps.get(name, payload))
+    return epub
+
+
+def _without_ncx(tmp_path: Path, specs: list[ChapterSpec]) -> Document:
+    epub = build_epub(tmp_path / "n.epub", "T", specs)
+    return read_epub(_rewrite_zip(epub, drop=("OEBPS/toc.ncx",)))
+
+
+def test_ncx_label_wins_over_heading(tmp_path: Path) -> None:
+    specs = [ChapterSpec("Nav Label", "<h1>Real Heading</h1><p>body</p>")]
+
+    document = read_epub(build_epub(tmp_path / "h.epub", "T", specs))
+
+    assert document.chapters[0].title == "Nav Label"
+
+
 def test_falls_back_to_heading_title(tmp_path: Path) -> None:
-    # NCX nav label is present in the helper; remove reliance by checking heading.
     specs = [ChapterSpec("Ignored", "<h1>Real Heading</h1><p>body</p>")]
-    epub = build_epub(tmp_path / "h.epub", "T", specs)
-    document = read_epub(epub)
-    # The NCX label wins when present.
-    assert document.chapters[0].title == "Ignored"
+
+    assert _without_ncx(tmp_path, specs).chapters[0].title == "Real Heading"
+
+
+def test_falls_back_to_file_stem_without_heading(tmp_path: Path) -> None:
+    specs = [ChapterSpec("Ignored", "<p>no heading here</p>")]
+
+    assert _without_ncx(tmp_path, specs).chapters[0].title == "ch0"
+
+
+_OPF = "OEBPS/content.opf"
+_CH1 = "OEBPS/ch1.xhtml"
+
+
+@pytest.mark.parametrize(
+    ("drop", "replace", "message"),
+    [
+        ((_OPF,), None, "OPF not found in archive"),
+        ((_CH1,), None, "Spine references missing file"),
+        ((), {_OPF: b"<package"}, "Malformed XML"),
+    ],
+    ids=["missing-opf", "missing-spine-file", "malformed-opf"],
+)
+def test_structurally_broken_epub_raises(
+    tmp_path: Path,
+    drop: tuple[str, ...],
+    replace: dict[str, bytes] | None,
+    message: str,
+) -> None:
+    specs = [ChapterSpec("Zero", "<p>0</p>"), ChapterSpec("One", "<p>1</p>")]
+    epub = _rewrite_zip(build_epub(tmp_path / "b.epub", "T", specs), drop=drop, replace=replace)
+
+    with pytest.raises(ReadError, match=message):
+        read_epub(epub)
+
+
+_ART_ITEM = 'id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"'
+_SVG_ITEM = 'id="ch1" href="ch1.xhtml" media-type="image/svg+xml"'
+
+
+def _mark_second_chapter_as_svg(epub: Path) -> Path:
+    opf = _read_members(epub)[_OPF].decode("utf-8")
+    swapped = opf.replace(_ART_ITEM, _SVG_ITEM)
+    assert swapped != opf
+    return _rewrite_zip(epub, replace={_OPF: swapped.encode("utf-8")})
+
+
+def test_non_xhtml_spine_items_are_skipped(tmp_path: Path) -> None:
+    specs = [ChapterSpec(title, f"<p>{title}</p>") for title in ("Cover", "Art", "Two")]
+    epub = _mark_second_chapter_as_svg(build_epub(tmp_path / "s.epub", "T", specs))
+
+    assert [chapter.title for chapter in read_epub(epub).chapters] == ["Cover", "Two"]
 
 
 def test_epub_without_chapters_raises(tmp_path: Path) -> None:
