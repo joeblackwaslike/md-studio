@@ -8,7 +8,7 @@ import typer
 
 from md_studio.core.convert import convert as convert_document
 from md_studio.core.document import Document
-from md_studio.core.exceptions import ReadError, UnknownExtensionError
+from md_studio.core.exceptions import MdStudioError
 from md_studio.readers.epub import read_epub
 from md_studio.sinks.file import FileSink
 
@@ -33,10 +33,24 @@ def _read(source: Path) -> Document:
 
 
 def _split_names(raw: str | None) -> list[str] | None:
-    """Split a comma-separated extension list, or return ``None`` when unset."""
+    """Split a comma-separated extension list, or return ``None`` when unset.
+
+    Surrounding spaces and empty entries (for example a trailing comma) are ignored.
+    A non-empty value that yields no names is an error.
+    """
     if not raw:
         return None
-    return [name.strip() for name in raw.split(",") if name.strip()]
+    names = [name.strip() for name in raw.split(",") if name.strip()]
+    if not names:
+        raise _fail(f"--ext names no extensions: {raw!r}")
+    return names
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    """Return whether two paths refer to the same file, existing or not."""
+    if first.resolve() == second.resolve():
+        return True
+    return first.exists() and second.exists() and first.samefile(second)
 
 
 def _convert_to_file(
@@ -46,7 +60,7 @@ def _convert_to_file(
     sink = FileSink(dest, force=force)
     try:
         return sink.write(convert_document(_read(source), extensions=extensions), name=source.stem)
-    except (ReadError, UnknownExtensionError, OSError) as error:
+    except (MdStudioError, OSError) as error:
         raise _fail(str(error)) from error
 
 
@@ -70,5 +84,8 @@ def convert(
 ) -> None:
     """Convert SOURCE to a Markdown file."""
     dest = output or source.with_suffix(".md")
-    written = _convert_to_file(source, dest, _split_names(ext), force=force)
+    extensions = _split_names(ext)
+    if _same_file(source, dest):
+        raise _fail(f"Output path is the source file: {source}")
+    written = _convert_to_file(source, dest, extensions, force=force)
     typer.echo(f"Wrote {written}")

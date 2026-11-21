@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from md_studio.cli import app
+from md_studio.core.convert import convert
+from md_studio.readers.epub import read_epub
 from tests.readers._epub import ChapterSpec, build_epub
-
-app = pytest.importorskip("md_studio.cli").app
-CliRunner = pytest.importorskip("typer.testing").CliRunner
 
 
 def _epub(tmp_path: Path) -> Path:
@@ -54,6 +55,8 @@ def test_cli_reports_read_error(tmp_path: Path) -> None:
     outcome = _convert(broken)
 
     assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
     assert not (tmp_path / "broken.md").exists()
 
 
@@ -63,8 +66,10 @@ def test_cli_rejects_unsupported_suffix(tmp_path: Path) -> None:
 
     outcome = _convert(source)
 
-    assert outcome.exit_code != 0
-    assert ".epub" in outcome.output
+    assert outcome.exit_code == 1
+    assert "Unsupported source type" in outcome.output
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
 
 
 def test_cli_reports_unwritable_destination_as_one_line_error(  # noqa: WPS118
@@ -87,3 +92,53 @@ def test_cli_reports_directory_dest_cleanly(tmp_path: Path) -> None:
     assert outcome.exit_code == 1
     assert "Traceback" not in outcome.output
     assert len(outcome.output.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize("raw", [",", " ", " , "])
+def test_cli_rejects_ext_without_names(tmp_path: Path, raw: str) -> None:
+    outcome = _convert(_epub(tmp_path), "--ext", raw)
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert not (tmp_path / "book.md").exists()
+
+
+def test_cli_ext_tolerates_spaces_and_trailing_comma(tmp_path: Path) -> None:
+    source = _epub(tmp_path)
+    expected = convert(read_epub(source), extensions=["fix-headings", "remove-footnotes"]).text
+
+    outcome = _convert(source, "--ext", "fix-headings, remove-footnotes,")
+
+    assert outcome.exit_code == 0, outcome.output
+    assert (tmp_path / "book.md").read_text(encoding="utf-8") == expected
+
+
+def test_cli_reports_missing_source_as_one_line_error(tmp_path: Path) -> None:
+    outcome = _convert(tmp_path / "missing.epub")
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
+
+
+def test_cli_refuses_output_that_is_the_source(tmp_path: Path) -> None:
+    source = _epub(tmp_path)
+    original = source.read_bytes()
+
+    outcome = _convert(source, "-o", source, "--force")
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error:")
+    assert "source" in outcome.output
+    assert source.read_bytes() == original
+
+
+def test_cli_refuses_aliased_source_output(tmp_path: Path) -> None:
+    source = _epub(tmp_path)
+    alias = tmp_path / "sub" / ".." / source.name
+
+    outcome = _convert(source, "-o", alias, "--force")
+
+    assert outcome.exit_code == 1
+    assert "source" in outcome.output
