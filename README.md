@@ -5,7 +5,7 @@ Convert EPUB, HTML, PDF and arXiv sources to Markdown.
 ## Install
 
 ```bash
-uv sync --all-extras
+uv sync --extra cli
 ```
 
 Extras: `cli` (typer, rich) and `pdf` (docling).

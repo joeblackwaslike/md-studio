@@ -1,7 +1,5 @@
-mastering-behavioral-interviews.epub
-mastering-behavioral-interviews.html
-mastering-behavioral-interviews.md
 *.epub
+.clawhip/
 .venv/
 __pycache__/
 *.egg-info/

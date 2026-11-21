@@ -1044,10 +1044,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "docling", marker = "extra == 'pdf'" },
+    { name = "docling", marker = "extra == 'pdf'", specifier = ">=2.151" },
     { name = "html5lib", specifier = ">=1.1" },
     { name = "httpx", specifier = ">=0.28" },
-    { name = "lxml", specifier = ">=4.1.1" },
+    { name = "lxml", specifier = ">=5" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.7" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12" },
 ]
