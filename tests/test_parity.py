@@ -4,11 +4,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from md_studio.cli import app
 from tests.readers._epub import ChapterSpec, build_epub
-
-app = pytest.importorskip("md_studio.cli").app
-CliRunner = pytest.importorskip("typer.testing").CliRunner
 
 BASELINE = os.environ.get("SAFARIBOOKS_BASELINE")
 
@@ -20,7 +19,7 @@ from safaribooks.core.markdown.convert import convert_epub
 convert_epub(Path(sys.argv[1]), Path(sys.argv[2]))
 """
 
-_WITH_FLAGS = ("--with", "lxml", "--with", "html5lib", "--with", "httpx")
+_WITH_FLAGS = ("--with", "lxml")
 
 
 def _baseline_markdown(baseline: Path, epub: Path, out: Path, script: Path) -> bytes:
