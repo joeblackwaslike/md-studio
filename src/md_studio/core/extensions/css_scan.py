@@ -1,72 +1,67 @@
 """Linear-time scanner for the top-level rules of an untrusted stylesheet.
 
-It is not a CSS parser. It strips comments, skips at-rules (``@media``, ``@import``,
-...) and yields ``(selector, body)`` for each qualified rule, using only ``str.find``
-and a single-character regex so work and memory stay linear in the input size.
+It is not a CSS parser. After comments and string contents are blanked, it walks every
+``{``, ``}`` and ``;`` exactly once, tracking brace depth, and yields ``(selector, body)``
+for each top-level qualified rule. At-rules (``@media``, ``@import``, ...) are skipped.
+The scan only moves forward, so work and memory are linear in the input size.
 """
 
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 
-_MAX_SCANNED_BLOCKS = 200_000
+from md_studio.core.extensions.css_noise import blank_noise
+
+_MAX_PRELUDE_RAW_CHARS = 4_096
 _MAX_SELECTOR_CHARS = 200
-_BRACES = re.compile(r"[{}]")
-_PRELUDE_NOISE = "} \t\r\n"
-
-
-def _without_comments(css: str) -> str:
-    """Return *css* with ``/* ... */`` comments removed; an unclosed one drops the rest."""
-    parts: list[str] = []
-    position = 0
-    while True:
-        start = css.find("/*", position)
-        if start < 0:
-            parts.append(css[position:])
-            return " ".join(parts)
-        parts.append(css[position:start])
-        end = css.find("*/", start + 2)
-        if end < 0:
-            return " ".join(parts)
-        position = end + 2
-
-
-def _after_block(css: str, opening: int) -> int:
-    """Return the index just past the brace closing the block opened at *opening*, or -1."""
-    depth = 0
-    for brace in _BRACES.finditer(css, opening):
-        depth += 1 if brace.group() == "{" else -1
-        if depth == 0:
-            return brace.end()
-    return -1
-
-
-def _after_at_rule(css: str, start: int, opening: int) -> int:
-    """Return where scanning resumes after the at-rule spanning *start* to the ``{`` at *opening*.
-
-    A statement at-rule (``@import ...;``) ends at its semicolon; a block at-rule ends at
-    its matching brace. ``-1`` means the rest of the input belongs to the at-rule.
-    """
-    semicolon = css.find(";", start, opening)
-    return semicolon + 1 if semicolon >= 0 else _after_block(css, opening)
-
+_MAX_BODY_CHARS = 2_048
+_STRUCTURE = re.compile(r"[{};}]")
 
 Rule = tuple[str, str]
 
 
-def _step(text: str, position: int) -> tuple[int, Rule | None]:
-    """Scan one block from *position*; return the next position (-1 to stop) and its rule."""
-    opening = text.find("{", position)
-    if opening < 0:
-        return -1, None
-    prelude = text[position:opening].lstrip(_PRELUDE_NOISE).rstrip()
-    if prelude.startswith("@"):
-        return _after_at_rule(text, position, opening), None
-    closing = text.find("}", opening + 1)
-    if closing < 0:
-        return -1, None
-    if len(prelude) > _MAX_SELECTOR_CHARS:
-        return closing + 1, None
-    return closing + 1, (prelude, text[opening + 1 : closing])
+def _selector(prelude: str, body: str) -> Rule | None:
+    """Return ``(selector, body)`` for a qualified rule within the size caps, else ``None``."""
+    selector = prelude.strip()
+    if selector.startswith("@") or len(selector) > _MAX_SELECTOR_CHARS:
+        return None
+    return None if len(body) > _MAX_BODY_CHARS else (selector, body)
+
+
+@dataclass(slots=True)
+class _Walk:
+    """Position of the scan: where the current prelude and body started, and brace depth."""
+
+    start: int = 0
+    body_start: int = 0
+    depth: int = 0
+    prelude: str = ""
+
+    def opened(self, text: str, at: int) -> None:
+        """Handle a ``{`` at *at*."""
+        if self.depth == 0:
+            too_long = at - self.start > _MAX_PRELUDE_RAW_CHARS
+            self.prelude = "@" if too_long else text[self.start : at]
+            self.body_start = at + 1
+        self.depth += 1
+
+    def closed(self, text: str, at: int) -> Rule | None:
+        """Handle a ``}`` at *at* inside a block; return the rule it completes, if any."""
+        self.depth -= 1
+        if self.depth > 0:
+            return None
+        self.start = at + 1
+        return _selector(self.prelude, text[self.body_start : at])
+
+    def step(self, text: str, char: str, at: int) -> Rule | None:
+        """Handle the structural *char* at *at*; return a completed rule, if any."""
+        if char == "{":
+            self.opened(text, at)
+        elif char == "}" and self.depth > 0:
+            return self.closed(text, at)
+        elif self.depth == 0:
+            self.start = at + 1
+        return None
 
 
 def rules(css: str) -> Iterator[Rule]:
@@ -75,15 +70,13 @@ def rules(css: str) -> Iterator[Rule]:
     Parameters
     ----------
     css:
-        Stylesheet text. At most 200,000 blocks are scanned and selectors longer than
-        200 characters are skipped.
+        Stylesheet text. Preludes over 4,096 characters, selectors over 200 and bodies
+        over 2,048 are skipped.
     """
-    text = _without_comments(css)
-    position = 0
-    for _ in range(_MAX_SCANNED_BLOCKS):
-        position, rule = _step(text, position)
-        if position < 0:
-            return
+    text = blank_noise(css)
+    walk = _Walk()
+    for token in _STRUCTURE.finditer(text):
+        rule = walk.step(text, token.group(), token.start())
         if rule is not None:
             yield rule
 

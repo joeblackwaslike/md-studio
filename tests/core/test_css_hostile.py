@@ -1,5 +1,6 @@
 """Hostile and large stylesheets stay fast and small: classification work is linear."""
 
+import random
 import time
 import tracemalloc
 from collections.abc import Callable
@@ -56,6 +57,46 @@ def _unclosed_declarations() -> str:
     return f".a{{font-size:2rem;{'x:' * 400_000}"
 
 
+def _statement_at_rules_then_brace() -> str:
+    return "".join(("@a;" * 350_000, "{"))
+
+
+def _imports_then_brace() -> str:
+    return "".join(("@import url(x);" * 70_000, "{"))
+
+
+def _statement_at_rules_no_brace() -> str:
+    return "@a;" * 350_000
+
+
+def _at_rule_then_empty_rule() -> str:
+    return "@a;a{}" * 170_000
+
+
+def _semicolons_then_brace() -> str:
+    return "".join((";" * (_ONE_MIB - 1), "{"))
+
+
+def _comments_between_at_rules() -> str:
+    return "@a;/**/" * 150_000
+
+
+def _quotes() -> str:
+    return '"' * _ONE_MIB
+
+
+def _escaped_quotes() -> str:
+    return "'\\" * 350_000
+
+
+def _long_unterminated_string() -> str:
+    return f'.a{{content:"{"x" * _ONE_MIB}'
+
+
+def _long_escape_chain() -> str:
+    return "".join(('"', r"\a" * 300_000))
+
+
 _HOSTILE: MappingProxyType[str, Callable[[], str]] = MappingProxyType({
     "tiny-rules": _tiny_rules,
     "nested-media": _nested_media,
@@ -67,6 +108,16 @@ _HOSTILE: MappingProxyType[str, Callable[[], str]] = MappingProxyType({
     "closed-comments": _closed_comments,
     "stray-close-braces": _stray_close_braces,
     "unclosed-declarations": _unclosed_declarations,
+    "statement-at-rules-then-brace": _statement_at_rules_then_brace,
+    "imports-then-brace": _imports_then_brace,
+    "statement-at-rules-no-brace": _statement_at_rules_no_brace,
+    "at-rule-then-empty-rule": _at_rule_then_empty_rule,
+    "semicolons-then-brace": _semicolons_then_brace,
+    "comments-between-at-rules": _comments_between_at_rules,
+    "quotes": _quotes,
+    "escaped-quotes": _escaped_quotes,
+    "long-unterminated-string": _long_unterminated_string,
+    "long-escape-chain": _long_escape_chain,
 })
 
 
@@ -146,4 +197,63 @@ def test_real_looking_stylesheet_still_classifies_every_class() -> None:
 def test_scanner_reads_simple_rules_like_a_css_parser(
     stylesheet: str, expected: dict[str, int]
 ) -> None:
+    assert css_headings.classify(stylesheet) == expected
+
+
+_SCALING_FAMILIES = MappingProxyType({
+    "statement-at-rules": ("@a;", "{"),
+    "imports": ("@import url(x);", "{"),
+    "semicolons": (";", "{"),
+    "at-rule-empty-rule": ("@a;a{}", ""),
+    "comments": ("@a;/**/", ""),
+    "tiny-rules": (".c{font-size:2em}", ""),
+})
+
+
+def _elapsed(stylesheet: str) -> float:
+    started = time.perf_counter()
+    css_headings.classify(stylesheet)
+    return time.perf_counter() - started
+
+
+@pytest.mark.parametrize("family", sorted(_SCALING_FAMILIES))
+def test_work_grows_linearly_with_input_size(family: str) -> None:
+    unit, tail = _SCALING_FAMILIES[family]
+    small = _elapsed(unit * (65_536 // len(unit)) + tail)
+    large = _elapsed(unit * (_ONE_MIB // len(unit)) + tail)
+
+    assert large < 40 * max(small, 0.005)
+
+
+_FUZZ_TOKENS = (
+    "@a;", "{", "}", "/*", "*/", '"', "'", "\\", ".a", "a{}", "@media x{", ";", "!", "\n",
+    ".b{font-size:2rem}", "font-size:2rem",
+)  # fmt: skip
+
+
+def test_random_token_streams_finish_fast_and_never_raise() -> None:
+    rng = random.Random(0)  # noqa: S311 -- seeded fuzz, not security
+    for _ in range(100):
+        stylesheet = "".join(rng.choices(_FUZZ_TOKENS, k=60_000))[:262_144]
+        started = time.perf_counter()
+
+        levels = css_headings.classify(stylesheet)
+
+        assert time.perf_counter() - started < _WALL_CLOCK_LIMIT_S
+        assert isinstance(levels, dict)
+
+
+@pytest.mark.parametrize(
+    ("stylesheet", "expected"),
+    [
+        ('.a{content:"}";font-size:2rem} .b{font-size:3rem}', {"b": 1, "a": 2}),
+        (".a{content:'}';font-size:2rem}.b{font-size:3rem}", {"b": 1, "a": 2}),
+        ('.a{background:url("data:image/png;base64,{x}")}.b{font-size:2rem}', {"b": 1}),
+        (r'.a{content:"a\"}";font-size:2rem}.b{font-size:3rem}', {"b": 1, "a": 2}),
+        (".a{content:'x\n}.b{font-size:3rem}", {"b": 1}),
+        ('.a{content:"/*"}.b{font-size:3rem}/*"*/', {"b": 1}),
+        ('/*"*/.a{font-size:2rem}', {"a": 1}),
+    ],
+)
+def test_scanner_is_aware_of_quoted_strings(stylesheet: str, expected: dict[str, int]) -> None:
     assert css_headings.classify(stylesheet) == expected
