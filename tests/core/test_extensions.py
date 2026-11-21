@@ -1,5 +1,7 @@
 """Tests for the extension pipeline, built-ins, and discovery."""
 
+import importlib
+
 import pytest
 
 from md_studio.core import ir
@@ -160,3 +162,52 @@ def test_fix_headings_ignores_malformed_font_sizes(style: str) -> None:
     transformed = FixHeadings().transform_chapter(chapter, _ctx())
 
     assert isinstance(transformed.blocks[0], ir.Paragraph)
+
+
+class _LazyImportExtension(MarkdownExtension):
+    name = "lazy"
+
+    def __init__(self) -> None:
+        importlib.import_module("md_studio_missing_module")
+
+
+class _BuggyExtension(MarkdownExtension):
+    name = "buggy"
+
+    def __init__(self) -> None:
+        raise ValueError("programming error")
+
+
+class _ClassEntryPoint:
+    def __init__(self, extension_cls: type[MarkdownExtension]) -> None:
+        self.name = extension_cls.name
+
+        self._cls = extension_cls
+
+    def load(self) -> type[MarkdownExtension]:
+        return self._cls
+
+
+def _install(monkeypatch: pytest.MonkeyPatch, *classes: type[MarkdownExtension]) -> None:
+    points = [_ClassEntryPoint(extension_cls) for extension_cls in classes]
+    monkeypatch.setattr(discovery_mod, "entry_points", lambda group: points)
+
+
+def test_resolve_reports_import_errors_raised_while_constructing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, _LazyImportExtension)
+
+    with pytest.raises(
+        ExtensionLoadError, match=r"extension 'lazy' failed to load: .*md_studio_missing"
+    ):
+        resolve(["lazy"])
+
+
+def test_resolve_lets_unrelated_construction_errors_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, _BuggyExtension)
+
+    with pytest.raises(ValueError, match="programming error"):
+        resolve(["buggy"])

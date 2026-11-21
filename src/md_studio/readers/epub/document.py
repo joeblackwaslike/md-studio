@@ -63,5 +63,5 @@ def read_epub(path: Path) -> Document:
     try:
         with zipfile.ZipFile(path) as archive:
             return _read_document(archive, path)
-    except zipfile.BadZipFile as exc:
+    except (zipfile.BadZipFile, UnicodeDecodeError) as exc:
         raise ReadError(f"Not a valid EPUB (zip) file: {path}") from exc

@@ -1,3 +1,4 @@
+import importlib
 import logging
 from pathlib import Path
 
@@ -6,6 +7,7 @@ from typer.testing import CliRunner
 
 from md_studio.cli import app
 from md_studio.core.convert import convert
+from md_studio.core.extensions.base import MarkdownExtension
 from md_studio.readers.epub import read_epub
 from tests.readers._epub import ChapterSpec, build_epub
 
@@ -223,3 +225,51 @@ def test_cli_conversion_ignores_unrelated_broken_plugin_quietly(
     assert outcome.exit_code == 0, outcome.output
     assert "Traceback" not in outcome.output
     assert all(record.levelno < logging.WARNING for record in caplog.records)
+
+
+def _replace_denied(source: Path, target: Path) -> None:
+    raise PermissionError("replace denied")
+
+
+def test_cli_reports_failed_atomic_replace_as_one_line_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "out.md"
+    dest.write_bytes(b"original")
+    monkeypatch.setattr("md_studio.sinks.file.os.replace", _replace_denied)
+
+    outcome = _convert(_epub(tmp_path), "-o", dest, "--force")
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert dest.read_bytes() == b"original"
+
+
+class _LazyEntryPoint:
+    name = "lazy"
+
+    def load(self) -> type[MarkdownExtension]:
+        return _LazyImportExtension
+
+
+class _LazyImportExtension(MarkdownExtension):
+    name = "lazy"
+
+    def __init__(self) -> None:
+        importlib.import_module("md_studio_missing_module")
+
+
+def test_cli_reports_extension_construction_import_error_as_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "md_studio.core.extensions.discovery.entry_points", lambda group: [_LazyEntryPoint()]
+    )
+
+    outcome = _convert(_epub(tmp_path), "--ext", "lazy")
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert outcome.output.startswith("Error: extension 'lazy' failed to load")
+    assert len(outcome.output.strip().splitlines()) == 1

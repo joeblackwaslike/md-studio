@@ -6,6 +6,14 @@ from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
 from md_studio.core.extensions.discovery import discover_with_failures
 
 
+def _instantiate(name: str, extension_cls: type[MarkdownExtension]) -> MarkdownExtension:
+    """Construct *extension_cls*, reporting a failed lazy import as a load error."""
+    try:
+        return extension_cls()
+    except ImportError as error:
+        raise ExtensionLoadError(name, f"{type(error).__name__}: {error}") from error
+
+
 def resolve(names: list[str]) -> list[MarkdownExtension]:
     """Instantiate the named extensions in order, raising on unknown or unloadable names."""
     registry, failures = discover_with_failures()
@@ -16,7 +24,7 @@ def resolve(names: list[str]) -> list[MarkdownExtension]:
             raise ExtensionLoadError(name, failures[name])
         if extension_cls is None:
             raise UnknownExtensionError(name, sorted(registry))
-        resolved.append(extension_cls())
+        resolved.append(_instantiate(name, extension_cls))
     return resolved
 
 

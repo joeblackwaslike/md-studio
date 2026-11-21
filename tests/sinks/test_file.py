@@ -257,3 +257,21 @@ def test_file_sink_stages_replacement_privately_then_matches_destination_mode(
 
     assert spy.modes == [0o600]
     assert dest.stat().st_mode & 0o777 == 0o644
+
+
+def _replace_denied(source: Path, target: Path) -> None:
+    raise PermissionError("replace denied")
+
+
+def test_file_sink_failed_atomic_replace_keeps_original_and_removes_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "book.md"
+    dest.write_bytes(b"original")
+    monkeypatch.setattr("md_studio.sinks.file.os.replace", _replace_denied)
+
+    with pytest.raises(PermissionError, match="replace denied"):
+        FileSink(dest, force=True).write(_rendered(), name="book")
+
+    assert dest.read_bytes() == b"original"
+    assert list(tmp_path.iterdir()) == [dest]

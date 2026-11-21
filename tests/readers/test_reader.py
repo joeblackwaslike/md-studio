@@ -77,11 +77,12 @@ def _rewrite_zip(
     *,
     drop: tuple[str, ...] = (),
     replace: dict[str, bytes] | None = None,
+    compression: int = zipfile.ZIP_DEFLATED,
 ) -> Path:
     """Rewrite *epub* in place without the *drop* members and with *replace* contents."""
     swaps = replace or {}
     members = {**_read_members(epub), **swaps}
-    with zipfile.ZipFile(epub, "w", zipfile.ZIP_DEFLATED) as target:
+    with zipfile.ZipFile(epub, "w", compression) as target:
         for name, payload in members.items():
             if name not in drop:
                 target.writestr(name, payload)
@@ -257,3 +258,63 @@ def test_percent_encoded_ncx_href_still_supplies_the_title(tmp_path: Path) -> No
     epub = _percent_encode_chapter_href(build_epub(tmp_path / "sp.epub", "T", specs))
 
     assert read_epub(epub).chapters[0].title == "Nav Title"
+
+
+_DOCTYPE = '<!DOCTYPE package [<!ENTITY xxe SYSTEM "{uri}">]>'
+
+
+def _hostile_opf(epub: Path, uri: str) -> bytes:
+    """Return the OPF with an external-entity DOCTYPE and the title set to that entity."""
+    opf = _read_members(epub)[_OPF].decode("utf-8")
+    declaration, _, rest = opf.partition("?>\n")
+    hostile = f"{declaration}?>\n{_DOCTYPE.format(uri=uri)}\n{rest}"
+    return hostile.replace("<dc:title>T</dc:title>", "<dc:title>&xxe;</dc:title>").encode("utf-8")
+
+
+def test_external_entities_in_the_opf_are_not_resolved(tmp_path: Path) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET-VALUE", encoding="utf-8")
+    epub = build_epub(tmp_path / "x.epub", "T", [ChapterSpec("One", "<p>x</p>")])
+    hostile = _hostile_opf(epub, secret.as_uri())
+
+    document = read_epub(_rewrite_zip(epub, replace={_OPF: hostile}))
+
+    assert "TOP-SECRET-VALUE" not in document.metadata.title
+
+
+def test_streamed_length_is_capped_even_when_the_declared_size_is_small(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    epub = build_epub(tmp_path / "s.epub", "T", [ChapterSpec("One", "<p>x</p>" * 1000)])
+    monkeypatch.setattr("md_studio.readers.epub.archive._declared_size", lambda archive, path: 0)
+    monkeypatch.setattr("md_studio.readers.epub.archive.MAX_MEMBER_BYTES", 3000)
+
+    with pytest.raises(ReadError, match=r"OEBPS/ch0\.xhtml exceeds"):
+        read_epub(epub)
+
+
+def test_corrupt_lzma_member_raises_member_read_error(tmp_path: Path) -> None:
+    epub = build_epub(tmp_path / "z.epub", "T", [ChapterSpec("One", "<p>hello</p>" * 50)])
+    _rewrite_zip(epub, compression=zipfile.ZIP_LZMA)
+    blob = bytearray(epub.read_bytes())
+    payload = blob.find(b"OEBPS/ch0.xhtml") + len(b"OEBPS/ch0.xhtml")
+    for offset in range(payload + 12, payload + 24):
+        blob[offset] ^= 0xFF
+    epub.write_bytes(bytes(blob))
+
+    with pytest.raises(ReadError, match="Cannot read archive member"):
+        read_epub(epub)
+
+
+def test_invalid_utf8_member_name_raises_read_error(tmp_path: Path) -> None:
+    epub = build_epub(tmp_path / "u.epub", "T", [ChapterSpec("One", "<p>x</p>")])
+    blob = bytearray(epub.read_bytes())
+    entry = re.search(rb"PK\x01\x02.{42}mimetype", bytes(blob), re.DOTALL)
+    assert entry is not None
+    flags = struct.unpack_from("<H", blob, entry.start() + 8)[0]
+    struct.pack_into("<H", blob, entry.start() + 8, flags | 0x800)
+    blob[entry.start() + 46] = 0xFF
+    epub.write_bytes(bytes(blob))
+
+    with pytest.raises(ReadError, match="Not a valid EPUB"):
+        read_epub(epub)

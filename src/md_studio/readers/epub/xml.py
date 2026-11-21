@@ -5,6 +5,9 @@ from lxml import etree
 from md_studio.core.exceptions import ReadError
 
 _TEXT = "/text()"
+_PARSER = etree.XMLParser(
+    resolve_entities=False, no_network=True, load_dtd=False, dtd_validation=False
+)
 
 
 def local(tag: str) -> str:
@@ -20,7 +23,7 @@ def anywhere(tag: str) -> str:
 def parse_xml(raw: bytes, *, source: str) -> etree._Element:  # type: ignore[no-any-unimported]
     """Parse *raw* as XML, raising :class:`ReadError` on failure."""
     try:
-        return etree.fromstring(raw)
+        return etree.fromstring(raw, parser=_PARSER)
     except etree.XMLSyntaxError as exc:
         raise ReadError(f"Malformed XML in {source}: {exc}") from exc
 
