@@ -18,3 +18,4 @@ def test_offsets_count_utf8_bytes(tmp_path: Path) -> None:
     chapter = next(entry for entry in rendered.chapters if entry.title == TITLE)
     raw = rendered.text.encode("utf-8")
     assert raw[chapter.start_byte : chapter.end_byte].startswith(f"## {TITLE}".encode())
+    assert rendered.chapters[-1].end_byte == len(raw) - 1
