@@ -15,6 +15,7 @@ TRANSPARENT_TAGS = frozenset(
 )
 EMPHASIS_TAGS = frozenset(("em", "i", "cite", "var"))
 STRONG_TAGS = frozenset(("strong", "b"))
+STRIKE_TAGS = frozenset(("del", "s", "strike"))
 INLINE_PASSTHROUGH = frozenset(("span", "abbr", "small", "u", "mark", "time", "q"))
 LIST_TAGS = frozenset(("ul", "ol"))
 SINGLE_BLOCK_TAGS = frozenset(("p", "pre", "blockquote", "hr", "table", "aside", "dl"))

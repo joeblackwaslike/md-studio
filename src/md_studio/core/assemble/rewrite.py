@@ -24,7 +24,7 @@ def _rewrite_inline(node: ir.Inline, mapping: Mapping) -> ir.Inline:
     """Rewrite a single inline node's footnote identifier (recursively)."""
     if isinstance(node, ir.FootnoteRef):
         return ir.FootnoteRef(mapping.get(node.identifier, node.identifier))
-    if isinstance(node, (ir.Emphasis, ir.Strong, ir.Link)):
+    if isinstance(node, (ir.Emphasis, ir.Strikethrough, ir.Strong, ir.Link)):
         return replace(node, children=rewrite_inlines(node.children, mapping))
     return node
 

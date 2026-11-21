@@ -19,6 +19,7 @@ _LEAF_RENDERERS: MappingProxyType[type, Callable[..., str]] = MappingProxyType({
 _WRAPPERS: MappingProxyType[type, tuple[str, str]] = MappingProxyType({
     ir.Emphasis: ("*", "*"),
     ir.Strong: ("**", "**"),
+    ir.Strikethrough: ("~~", "~~"),
 })
 
 
@@ -34,7 +35,10 @@ def _render_inline(node: ir.Inline) -> str:
         return leaf(node)
     if isinstance(node, ir.Link):
         return f"[{render_inlines(node.children)}]({node.href})"
-    if isinstance(node, (ir.Emphasis, ir.Strong)):
+    if isinstance(node, (ir.Emphasis, ir.Strong, ir.Strikethrough)):
         prefix, suffix = _WRAPPERS[type(node)]
-        return f"{prefix}{render_inlines(node.children)}{suffix}"
+        inner = render_inlines(node.children)
+        if isinstance(node, ir.Strikethrough) and not inner.strip():
+            return inner
+        return f"{prefix}{inner}{suffix}"
     return ""

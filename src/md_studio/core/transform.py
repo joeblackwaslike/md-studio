@@ -65,7 +65,7 @@ def _map_inline_seq(nodes: Inlines, transform: InlineFn) -> Inlines:
     """Map *transform* over an inline sequence, recursing into containers first."""
     mapped: list[ir.Inline] = []
     for node in nodes:
-        if isinstance(node, (ir.Emphasis, ir.Strong, ir.Link)):
+        if isinstance(node, (ir.Emphasis, ir.Strikethrough, ir.Strong, ir.Link)):
             recursed = replace(node, children=_map_inline_seq(node.children, transform))
             mapped.extend(transform(recursed))
         else:

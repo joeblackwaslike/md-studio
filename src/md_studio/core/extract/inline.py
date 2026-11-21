@@ -6,12 +6,22 @@ collector reads ``el.text`` and then, for each child, the child's converted
 content *and* its ``.tail``.
 """
 
+from types import MappingProxyType
+
 from lxml import html
 
 from md_studio.core import ir
 from md_studio.core.extract import anchors
 from md_studio.core.extract.normalize import normalize_inlines
-from md_studio.core.extract.tags import EMPHASIS_TAGS, STRONG_TAGS, localname
+from md_studio.core.extract.tags import EMPHASIS_TAGS, STRIKE_TAGS, STRONG_TAGS, localname
+
+_FORMATTING: MappingProxyType[str, type[ir.Emphasis | ir.Strong | ir.Strikethrough]] = (
+    MappingProxyType({
+        **dict.fromkeys(EMPHASIS_TAGS, ir.Emphasis),
+        **dict.fromkeys(STRONG_TAGS, ir.Strong),
+        **dict.fromkeys(STRIKE_TAGS, ir.Strikethrough),
+    })
+)
 
 
 def collect_inline(element: html.HtmlElement) -> list[ir.Inline]:  # type: ignore[no-any-unimported]
@@ -52,10 +62,9 @@ def _convert_simple(child: html.HtmlElement, tag: str) -> list[ir.Inline]:  # ty
 def convert_inline_child(child: html.HtmlElement) -> list[ir.Inline]:  # type: ignore[no-any-unimported]
     """Convert a single inline child element into IR inline nodes."""
     tag = localname(child)
-    if tag in EMPHASIS_TAGS:
-        return [ir.Emphasis(normalized_children(child))]
-    if tag in STRONG_TAGS:
-        return [ir.Strong(normalized_children(child))]
+    formatting = _FORMATTING.get(tag)
+    if formatting is not None:
+        return [formatting(normalized_children(child))]
     if tag == "a":
         return anchors.convert_anchor(child)
     if tag in {"sup", "sub"}:
