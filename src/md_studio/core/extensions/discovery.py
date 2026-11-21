@@ -1,8 +1,9 @@
-"""Discover available Markdown extensions (built-ins + entry-points).
+"""Discover available extensions and source fixes (built-ins + entry-points).
 
-Built-in names are reserved: a third-party entry-point that reuses a built-in
-name is ignored (with a warning), so installed packages cannot silently shadow
-shipped behaviour. Third-party extensions execute arbitrary code on load — only
+Both kinds share one name registry. Built-in names are reserved and the first
+registration of any name wins: a third-party entry-point that reuses a taken name is
+ignored (with a warning), so installed packages cannot silently shadow shipped or
+earlier behaviour. Third-party extensions execute arbitrary code on load — only
 install trusted packages.
 """
 
@@ -14,15 +15,17 @@ from md_studio.core.extensions.fix_broken_links import FixBrokenLinks
 from md_studio.core.extensions.fix_headings import FixHeadings
 from md_studio.core.extensions.reformat_toc import ReformatToc
 from md_studio.core.extensions.remove_footnotes import RemoveFootnotes
+from md_studio.core.extensions.source_fix import SourceFix
 
 logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "md_studio.extensions"
 
-Registry = dict[str, type[MarkdownExtension]]
+Registered = type[MarkdownExtension] | type[SourceFix]
+Registry = dict[str, Registered]
 Failures = dict[str, str]
 
-_BUILTINS: tuple[type[MarkdownExtension], ...] = (
+BUILTINS: tuple[Registered, ...] = (
     FixHeadings,
     RemoveFootnotes,
     FixBrokenLinks,
@@ -30,9 +33,9 @@ _BUILTINS: tuple[type[MarkdownExtension], ...] = (
 )
 
 
-def _builtin_registry() -> dict[str, type[MarkdownExtension]]:
-    """Return the built-in extension registry keyed by name."""
-    return {extension_cls.name: extension_cls for extension_cls in _BUILTINS}
+def _builtin_registry() -> Registry:
+    """Return the built-in registry keyed by name."""
+    return {registered.name: registered for registered in BUILTINS}
 
 
 def discover_with_failures() -> tuple[Registry, Failures]:
@@ -41,7 +44,7 @@ def discover_with_failures() -> tuple[Registry, Failures]:
     failures: Failures = {}
     for entry in entry_points(group=ENTRY_POINT_GROUP):
         if entry.name in registry:
-            logger.warning("Ignoring entry-point %r: reserved built-in name", entry.name)
+            logger.warning("Ignoring entry-point %r: name already registered", entry.name)
             continue
         try:
             registry[entry.name] = entry.load()
@@ -51,6 +54,6 @@ def discover_with_failures() -> tuple[Registry, Failures]:
     return registry, failures
 
 
-def discover() -> dict[str, type[MarkdownExtension]]:
-    """Return all available extensions, merging built-ins and entry-points."""
+def discover() -> Registry:
+    """Return all available extensions and source fixes, merging built-ins and entry-points."""
     return discover_with_failures()[0]

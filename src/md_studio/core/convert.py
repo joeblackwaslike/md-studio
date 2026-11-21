@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from md_studio.core import assemble, frontmatter, ir
 from md_studio.core.document import Document
-from md_studio.core.extensions import ExtCtx, pipeline
+from md_studio.core.extensions import ExtCtx, MarkdownExtension, pipeline
 from md_studio.core.extensions.audit import PromotionRecord
 from md_studio.core.render import Renderer
 
@@ -38,7 +38,8 @@ def convert(
     document:
         The parsed source document.
     extensions:
-        Ordered extension names to run (pipeline order). Defaults to none.
+        Ordered extension and source-fix names to enable. Source fixes run first, in
+        listed order, then the Markdown extensions in listed order. Defaults to none.
     extra:
         Additional front-matter properties; key rules are documented on
         :func:`md_studio.core.frontmatter.build`.
@@ -60,8 +61,11 @@ def convert(
         When a chapter offset exceeds the fixed front-matter field width.
 
     """
+    document, markdown_extensions = _fix_source(document, extensions or [])
     meta, chapters = assemble.assemble(document)
-    chapters, promotions = _apply_extensions(meta, chapters, extensions or [], document.stylesheet)
+    chapters, promotions = _apply_extensions(
+        meta, chapters, markdown_extensions, document.stylesheet
+    )
     return _render(meta, chapters, extra, promotions)
 
 
@@ -89,15 +93,20 @@ def _render(
     )
 
 
+def _fix_source(document: Document, names: list[str]) -> tuple[Document, list[MarkdownExtension]]:
+    """Resolve *names*, run the source fixes on *document*, and return the IR extensions."""
+    fixes, extensions = pipeline.split(pipeline.resolve(names))
+    return pipeline.apply_source_fixes(document, fixes), extensions
+
+
 def _apply_extensions(
     meta: ir.BookMeta,
     chapters: tuple[ir.ChapterIR, ...],
-    extensions: list[str],
+    extensions: list[MarkdownExtension],
     stylesheet: str,
 ) -> tuple[tuple[ir.ChapterIR, ...], tuple[PromotionRecord, ...]]:
-    """Resolve and run the extension pipeline over *chapters*, returning its promotions too."""
-    resolved = pipeline.resolve(extensions)
+    """Run the Markdown extensions over *chapters*, returning the chapters and promotions."""
     anchors = frozenset(note.identifier for chapter in chapters for note in chapter.footnotes)
     ctx = ExtCtx(book=meta, anchors=anchors, stylesheet=stylesheet)
-    chapters = pipeline.run(chapters, ctx, resolved)
+    chapters = pipeline.run(chapters, ctx, extensions)
     return chapters, tuple(ctx.audit.records)
