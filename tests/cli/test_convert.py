@@ -523,3 +523,19 @@ def test_cli_obsidian_checks_vault_before_reading_source(tmp_path: Path, problem
 
     assert outcome.exit_code == 1
     assert "Vault is not a directory" in outcome.output
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_cli_obsidian_unwritable_notes_folder_fails_before_reading(tmp_path: Path) -> None:
+    vault = _vault_dir(tmp_path)
+    notes = vault / "Book Notes"
+    notes.mkdir()
+    notes.chmod(0o500)
+    try:
+        outcome = _convert(tmp_path / "missing.epub", "--sink", "obsidian", "--vault", vault)
+    finally:
+        notes.chmod(0o700)
+
+    assert outcome.exit_code == 1
+    assert _one_error_line(outcome)
+    assert "Notes folder is not writable" in outcome.output

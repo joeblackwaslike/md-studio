@@ -20,6 +20,14 @@ _NOTE_TAGS = ("book-notes",)
 _NOTE_STATUS = "draft"
 
 
+def is_relative_folder(folder: PurePath) -> bool:
+    """Return whether *folder* is a non-empty path that stays under the vault.
+
+    Rooted, drive-anchored (``D:Notes``) and ``..``-containing paths are rejected.
+    """
+    return bool(folder.parts) and not folder.anchor and ".." not in folder.parts
+
+
 def _is_unsafe(char: str) -> bool:
     """Return whether *char* must not appear in a note filename."""
     return char in _UNSAFE_CHARS or unicodedata.category(char) in _STRIPPED_CATEGORIES
@@ -51,10 +59,9 @@ class ObsidianSink:
         Raises
         ------
         SinkError
-            When *folder* is empty, absolute, or contains ``..``.
+            When *folder* is empty, rooted, drive-anchored, or contains ``..``.
         """
-        parts = PurePath(folder).parts
-        if not parts or PurePath(folder).is_absolute() or ".." in parts:
+        if not is_relative_folder(PurePath(folder)):
             msg = f"Folder must be a non-empty relative path without '..': {folder!r}"
             raise SinkError(msg)
         self._vault = vault
@@ -93,7 +100,8 @@ class ObsidianSink:
         ------
         SinkError
             When the vault is missing, not a directory, or not writable, or when the
-            notes folder (or a parent of it) exists as something other than a directory.
+            notes folder (or a parent of it) exists as something other than a directory or
+            the directory where creation starts is not writable.
         """
         if not self._vault.is_dir():
             msg = f"Vault is not a directory: {self._vault}"
@@ -101,12 +109,11 @@ class ObsidianSink:
         if not os.access(self._vault, os.W_OK | os.X_OK):
             msg = f"Vault is not writable: {self._vault}"
             raise SinkError(msg)
-        current = self._vault
-        for part in PurePath(self._folder).parts:
-            current /= part
-            if current.exists() and not current.is_dir():
-                msg = f"Notes folder is not a directory: {current}"
-                raise SinkError(msg)
+        creation_dir = self._creation_dir()
+        writable = os.access(creation_dir, os.W_OK | os.X_OK)
+        if not writable:
+            msg = f"Notes folder is not writable: {creation_dir}"
+            raise SinkError(msg)
 
     def write(self, rendered: RenderedMarkdown, *, name: str) -> Path:
         """Write *rendered* as ``<vault>/<folder>/<sanitized name>.md``, creating the folder.
@@ -134,3 +141,22 @@ class ObsidianSink:
         self.check()
         dest = self._vault / self._folder / f"{sanitize_note_name(name)}{_SUFFIX}"
         return FileSink(dest).write(rendered, name=name)
+
+    def _creation_dir(self) -> Path:
+        """Return the deepest existing directory on the notes path, where creation starts.
+
+        Raises
+        ------
+        SinkError
+            When an existing component of the notes path is not a directory.
+        """
+        current = self._vault
+        for part in PurePath(self._folder).parts:
+            candidate = current / part
+            if not candidate.exists():
+                break
+            if not candidate.is_dir():
+                msg = f"Notes folder is not a directory: {candidate}"
+                raise SinkError(msg)
+            current = candidate
+        return current

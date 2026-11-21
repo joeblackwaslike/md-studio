@@ -2,7 +2,7 @@ import os
 import re
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 
 import pytest
 import yaml
@@ -11,10 +11,11 @@ from md_studio.core.convert import RenderedMarkdown, convert
 from md_studio.core.document import Document, DocumentMetadata
 from md_studio.readers.epub import read_epub
 from md_studio.sinks import SinkError
-from md_studio.sinks.obsidian import ObsidianSink
+from md_studio.sinks.obsidian import ObsidianSink, is_relative_folder
 from tests.readers._epub import ChapterSpec, build_epub
 
 _FOLDER = "Book Notes"
+_BACKSLASH = "\N{REVERSE SOLIDUS}"
 
 
 def _document(tmp_path: Path) -> Document:
@@ -228,3 +229,59 @@ def test_vault_check_reports_folder_that_is_a_file(tmp_path: Path) -> None:
 
 def test_vault_check_passes_for_writable_vault(tmp_path: Path) -> None:
     ObsidianSink(_vault(tmp_path), folder=_FOLDER).check()
+
+
+@pytest.mark.parametrize(
+    "folder",
+    [
+        PureWindowsPath(f"{_BACKSLASH}outside"),
+        PureWindowsPath("D:Notes"),
+        PureWindowsPath(f"C:{_BACKSLASH}x"),
+        PurePath("/abs"),
+    ],
+)
+def test_anchored_folders_are_not_relative(folder: PurePath) -> None:
+    assert not is_relative_folder(folder)
+
+
+@pytest.mark.parametrize(
+    "folder", [PurePath("Book Notes"), PurePath("a/b"), PureWindowsPath(f"a{_BACKSLASH}b")]
+)
+def test_plain_relative_folders_are_relative(folder: PurePath) -> None:
+    assert is_relative_folder(folder)
+
+
+@pytest.fixture
+def readonly_notes_folder(tmp_path: Path) -> Iterator[Path]:
+    folder = _vault(tmp_path) / _FOLDER
+    folder.mkdir()
+    folder.chmod(0o500)
+    yield folder
+    folder.chmod(0o700)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_check_rejects_unwritable_existing_notes_folder(readonly_notes_folder: Path) -> None:
+    sink = ObsidianSink(readonly_notes_folder.parent, folder=_FOLDER)
+
+    with pytest.raises(SinkError, match="Notes folder is not writable"):
+        sink.check()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_check_rejects_unwritable_existing_parent_of_missing_folder(tmp_path: Path) -> None:
+    vault = _vault(tmp_path)
+    parent = vault / "Books"
+    parent.mkdir()
+    parent.chmod(0o500)
+    try:
+        with pytest.raises(SinkError, match="Notes folder is not writable"):
+            ObsidianSink(vault, folder="Books/Tech").check()
+    finally:
+        parent.chmod(0o700)
+
+
+def test_check_allows_missing_notes_folder_in_writable_vault(tmp_path: Path) -> None:
+    ObsidianSink(_vault(tmp_path), folder=_FOLDER).check()
+
+    assert not (tmp_path / "vault" / _FOLDER).exists()
