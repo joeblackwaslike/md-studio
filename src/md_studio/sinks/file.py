@@ -44,9 +44,26 @@ def _staging_path(dest: Path) -> Path:
     return dest.with_name(f".md-studio-{uuid4().hex}.tmp")
 
 
+def _gid(path: Path) -> int:
+    """Return the owning group id of *path*."""
+    return path.stat().st_gid
+
+
+def _match_group(staging: Path, dest: Path) -> None:
+    """Give *staging* the group of *dest*, refusing when that group cannot be assigned."""
+    if _gid(staging) == _gid(dest):
+        return
+    try:
+        os.chown(staging, -1, _gid(dest))
+    except PermissionError as error:
+        msg = f"Cannot preserve group of {dest}; refusing to replace"
+        raise PermissionError(msg) from error
+
+
 def _stage_and_move(staging: Path, dest: Path, payload: bytes) -> None:
     """Write *payload* privately to *staging*, match *dest*'s mode, move it over *dest*."""
     _write_new(staging, payload, _PRIVATE_MODE)
+    _match_group(staging, dest)
     shutil.copymode(dest, staging)
     os.replace(staging, dest)  # noqa: PTH105
 

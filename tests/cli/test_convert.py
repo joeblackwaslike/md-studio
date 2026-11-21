@@ -273,3 +273,27 @@ def test_cli_reports_extension_construction_import_error_as_one_line(
     assert "Traceback" not in outcome.output
     assert outcome.output.startswith("Error: extension 'lazy' failed to load")
     assert len(outcome.output.strip().splitlines()) == 1
+
+
+def _distinct_gid(path: Path) -> int:
+    return 1 if path.name.startswith(".md-studio-") else 2
+
+
+def _chown_denied(path: Path, uid: int, gid: int) -> None:
+    raise PermissionError("not a member")
+
+
+def test_cli_reports_unpreservable_group_as_one_line_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "out.md"
+    dest.write_bytes(b"original")
+    monkeypatch.setattr("md_studio.sinks.file._gid", _distinct_gid)
+    monkeypatch.setattr("md_studio.sinks.file.os.chown", _chown_denied)
+
+    outcome = _convert(_epub(tmp_path), "-o", dest, "--force")
+
+    assert outcome.exit_code == 1
+    assert outcome.output.startswith("Error: Cannot preserve group of")
+    assert len(outcome.output.strip().splitlines()) == 1
+    assert dest.read_bytes() == b"original"

@@ -275,3 +275,52 @@ def test_file_sink_failed_atomic_replace_keeps_original_and_removes_staging(
 
     assert dest.read_bytes() == b"original"
     assert list(tmp_path.iterdir()) == [dest]
+
+
+def _other_group(directory: Path) -> int | None:
+    """Return a supplementary group of this user that differs from *directory*'s group."""
+    inherited = directory.stat().st_gid
+    others = [group for group in os.getgroups() if group not in {inherited, os.getgid()}]
+    return others[0] if others else None
+
+
+def test_file_sink_replacement_keeps_the_destination_group(tmp_path: Path) -> None:
+    group = _other_group(tmp_path)
+    if group is None:
+        pytest.skip("test user belongs to no supplementary group distinct from the directory's")
+    dest = tmp_path / "book.md"
+    dest.write_text("old", encoding="utf-8")
+    os.chown(dest, -1, group)
+    dest.chmod(0o640)
+
+    FileSink(dest, force=True).write(_rendered(), name="book")
+
+    assert dest.stat().st_gid == group
+    assert dest.stat().st_mode & 0o777 == 0o640
+
+
+def _distinct_gid(path: Path) -> int:
+    return 1 if path.name.startswith(".md-studio-") else 2
+
+
+def _chown_denied(path: Path, uid: int, gid: int) -> None:
+    raise PermissionError("not a member")
+
+
+def _deny_group_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("md_studio.sinks.file._gid", _distinct_gid)
+    monkeypatch.setattr("md_studio.sinks.file.os.chown", _chown_denied)
+
+
+def test_file_sink_refuses_to_replace_when_the_group_cannot_be_preserved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "book.md"
+    dest.write_bytes(b"original")
+    _deny_group_change(monkeypatch)
+
+    with pytest.raises(OSError, match=r"Cannot preserve group of .*book\.md; refusing to replace"):
+        FileSink(dest, force=True).write(_rendered(), name="book")
+
+    assert dest.read_bytes() == b"original"
+    assert list(tmp_path.iterdir()) == [dest]
