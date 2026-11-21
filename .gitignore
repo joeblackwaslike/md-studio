@@ -2,3 +2,10 @@ mastering-behavioral-interviews.epub
 mastering-behavioral-interviews.html
 mastering-behavioral-interviews.md
 *.epub
+.venv/
+__pycache__/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+dist/
