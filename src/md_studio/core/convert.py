@@ -19,7 +19,7 @@ class RenderedMarkdown:
     text: str
     front_matter: str
     body: str
-    chapters: list[frontmatter.ChapterRange]
+    chapters: tuple[frontmatter.ChapterRange, ...]
 
 
 def convert(document: Document, *, extensions: list[str] | None = None) -> RenderedMarkdown:
@@ -41,6 +41,8 @@ def convert(document: Document, *, extensions: list[str] | None = None) -> Rende
     ------
     UnknownExtensionError
         When a configured extension name is not registered.
+    OffsetOverflowError
+        When a chapter offset exceeds the fixed front-matter field width.
 
     """
     meta, chapters = assemble.assemble(document)
@@ -57,7 +59,7 @@ def convert(document: Document, *, extensions: list[str] | None = None) -> Rende
         text=f"{front_matter}{rendered.body}",
         front_matter=front_matter,
         body=rendered.body,
-        chapters=ranges,
+        chapters=tuple(ranges),
     )
 
 

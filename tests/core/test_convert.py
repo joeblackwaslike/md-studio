@@ -40,3 +40,10 @@ def test_result_parts_compose_text(tmp_path: Path) -> None:
 def test_unknown_extension_raises(tmp_path: Path) -> None:
     with pytest.raises(UnknownExtensionError):
         convert(_document(tmp_path), extensions=["nope"])
+
+
+def test_rendered_chapters_are_an_immutable_tuple_of_ranges(tmp_path: Path) -> None:
+    chapters = convert(_document(tmp_path)).chapters
+
+    assert isinstance(chapters, tuple)
+    assert [entry.title for entry in chapters] == ["One", "Two"]

@@ -11,7 +11,7 @@ def _rendered() -> RenderedMarkdown:
         text="---\ntitle: T\n---\n## One\n\nBody é\n",
         front_matter="---\ntitle: T\n---\n",
         body="## One\n\nBody é\n",
-        chapters=[],
+        chapters=(),
     )
 
 
@@ -82,7 +82,7 @@ def test_file_sink_writes_text_without_carriage_returns(tmp_path: Path) -> None:
 
 def test_file_sink_preserves_carriage_returns_in_text(tmp_path: Path) -> None:
     dest = tmp_path / "book.md"
-    rendered = RenderedMarkdown(text="a\r\nb\n", front_matter="", body="a\r\nb\n", chapters=[])
+    rendered = RenderedMarkdown(text="a\r\nb\n", front_matter="", body="a\r\nb\n", chapters=())
 
     FileSink(dest).write(rendered, name="book")
 
