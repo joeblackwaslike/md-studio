@@ -17,7 +17,7 @@ from md_studio.core.extensions.remove_footnotes import RemoveFootnotes
 
 logger = logging.getLogger(__name__)
 
-ENTRY_POINT_GROUP = "safaribooks.markdown_extensions"
+ENTRY_POINT_GROUP = "md_studio.extensions"
 
 _BUILTINS: tuple[type[MarkdownExtension], ...] = (
     FixHeadings,

@@ -123,3 +123,7 @@ def test_discovery_reserves_builtin_names(monkeypatch: pytest.MonkeyPatch) -> No
     registry = discover()
     assert registry["fix-headings"] is FixHeadings  # built-in wins
     assert registry["third-party"] is _FreshThirdPartyExtension
+
+
+def test_entry_point_group_uses_md_studio_name() -> None:
+    assert discovery_mod.ENTRY_POINT_GROUP == "md_studio.extensions"

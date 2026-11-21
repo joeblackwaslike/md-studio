@@ -18,10 +18,14 @@ class DocumentMetadata:
 
 @dataclass(frozen=True, slots=True)
 class SourceChapter:
-    """One source chapter: a resolved title and its content element."""
+    """One source chapter: a resolved title and its content element.
+
+    ``element`` is an lxml ``HtmlElement``, typed as ``object`` to avoid
+    ``no-any-unimported`` leaks.
+    """
 
     title: str
-    element: object  # lxml HtmlElement; typed loosely to avoid no-any-unimported leaks
+    element: object
 
 
 @dataclass(frozen=True, slots=True)
