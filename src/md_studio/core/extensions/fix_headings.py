@@ -1,16 +1,22 @@
 """Extension: promote font-size/styled paragraphs to real headings.
 
-Some books encode structure with styled paragraphs (large ``font-size`` or
-heading-ish classes) instead of ``<h1>``-``<h6>``. This promotes those to real
-headings so the document gets a usable outline. Heading levels here are
-pre-shift; the renderer demotes them by one under the chapter ``##`` heading.
+Some books encode structure with styled paragraphs instead of ``<h1>``-``<h6>``.
+This promotes those to real headings so the document gets a usable outline. When
+the source supplies a stylesheet, classes it styles as headings (see
+:mod:`md_studio.core.extensions.css_headings`) decide the level; otherwise an inline
+``font-size`` or a heading-ish class name does. Heading levels here are pre-shift;
+the renderer demotes them by one under the chapter ``##`` heading. Every promotion
+is logged to ``ctx.audit``.
 """
 
 import re
+from collections.abc import Mapping
 from typing import ClassVar
 
 from md_studio.core import ir
+from md_studio.core.extensions.audit import AuditLog, PromotionRecord
 from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
+from md_studio.core.extensions.css_headings import classify
 from md_studio.core.headings import text_of_inlines
 
 _FONT_SIZE_RE = re.compile(
@@ -57,8 +63,16 @@ def _level_for_size(size: float) -> int:
     return 4
 
 
-def _heading_level(meta: ir.Meta) -> int:
+def _stylesheet_level(meta: ir.Meta, levels: Mapping[str, int]) -> int:
+    """Return the level the stylesheet gives the first matching class, or ``0``."""
+    return next((levels[name] for name in meta.classes if name in levels), 0)
+
+
+def _heading_level(meta: ir.Meta, levels: Mapping[str, int]) -> int:
     """Return the heading level a styled paragraph should become, or ``0``."""
+    from_stylesheet = _stylesheet_level(meta, levels)
+    if from_stylesheet:
+        return from_stylesheet
     size = _font_size_px(meta.style)
     if size >= _PROMOTABLE_MIN_PX:
         return _level_for_size(size)
@@ -67,17 +81,26 @@ def _heading_level(meta: ir.Meta) -> int:
     return 0
 
 
-def _promote(block: ir.Block) -> ir.Block:
+def _promote(block: ir.Block, levels: Mapping[str, int]) -> ir.Block:
     """Promote a styled paragraph to a heading when it looks like one."""
     if not isinstance(block, ir.Paragraph):
         return block
     text = text_of_inlines(block.children).strip()
     if not text or len(text) > _MAX_HEADING_TEXT:
         return block
-    level = _heading_level(block.meta)
+    level = _heading_level(block.meta, levels)
     if level == 0:
         return block
     return ir.Heading(level=level, children=block.children, meta=block.meta)
+
+
+def _log_promotions(chapter: ir.ChapterIR, after: tuple[ir.Block, ...], audit: AuditLog) -> None:
+    """Record each block that became a heading when *chapter*'s blocks turned into *after*."""
+    for old, new in zip(chapter.blocks, after, strict=True):
+        if isinstance(new, ir.Heading) and new is not old:
+            text = text_of_inlines(new.children).strip()
+            was, classes = new.meta.tag, new.meta.classes
+            audit.add(PromotionRecord(chapter.title, text, was, classes, new.level))
 
 
 class FixHeadings(MarkdownExtension):
@@ -87,5 +110,7 @@ class FixHeadings(MarkdownExtension):
 
     def transform_chapter(self, chapter: ir.ChapterIR, ctx: ExtCtx) -> ir.ChapterIR:
         """Return *chapter* with styled heading-like paragraphs promoted."""
-        blocks = tuple(_promote(block) for block in chapter.blocks)
+        levels = classify(ctx.stylesheet) if ctx.stylesheet else {}
+        blocks = tuple(_promote(block, levels) for block in chapter.blocks)
+        _log_promotions(chapter, blocks, ctx.audit)
         return ir.ChapterIR(title=chapter.title, blocks=blocks, footnotes=chapter.footnotes)

@@ -10,17 +10,19 @@ from dataclasses import dataclass
 from md_studio.core import assemble, frontmatter, ir
 from md_studio.core.document import Document
 from md_studio.core.extensions import ExtCtx, pipeline
+from md_studio.core.extensions.audit import PromotionRecord
 from md_studio.core.render import Renderer
 
 
 @dataclass(frozen=True, slots=True)
 class RenderedMarkdown:
-    """The converted Markdown: full text plus its front-matter and body parts."""
+    """The converted Markdown: full text, its front-matter and body parts, and promotions."""
 
     text: str
     front_matter: str
     body: str
     chapters: tuple[frontmatter.ChapterRange, ...]
+    promotions: tuple[PromotionRecord, ...] = ()
 
 
 def convert(
@@ -59,8 +61,17 @@ def convert(
 
     """
     meta, chapters = assemble.assemble(document)
-    chapters = _apply_extensions(meta, chapters, extensions or [], document.stylesheet)
+    chapters, promotions = _apply_extensions(meta, chapters, extensions or [], document.stylesheet)
+    return _render(meta, chapters, extra, promotions)
 
+
+def _render(
+    meta: ir.BookMeta,
+    chapters: tuple[ir.ChapterIR, ...],
+    extra: Mapping[str, str | list[str]] | None,
+    promotions: tuple[PromotionRecord, ...],
+) -> RenderedMarkdown:
+    """Render *chapters* and build the two-pass front matter around the body."""
     rendered = Renderer().render(chapters)
     front_matter, ranges = frontmatter.build(
         meta,
@@ -74,6 +85,7 @@ def convert(
         front_matter=front_matter,
         body=rendered.body,
         chapters=tuple(ranges),
+        promotions=promotions,
     )
 
 
@@ -82,9 +94,10 @@ def _apply_extensions(
     chapters: tuple[ir.ChapterIR, ...],
     extensions: list[str],
     stylesheet: str,
-) -> tuple[ir.ChapterIR, ...]:
-    """Resolve and run the configured extension pipeline over *chapters*."""
+) -> tuple[tuple[ir.ChapterIR, ...], tuple[PromotionRecord, ...]]:
+    """Resolve and run the extension pipeline over *chapters*, returning its promotions too."""
     resolved = pipeline.resolve(extensions)
     anchors = frozenset(note.identifier for chapter in chapters for note in chapter.footnotes)
     ctx = ExtCtx(book=meta, anchors=anchors, stylesheet=stylesheet)
-    return pipeline.run(chapters, ctx, resolved)
+    chapters = pipeline.run(chapters, ctx, resolved)
+    return chapters, tuple(ctx.audit.records)

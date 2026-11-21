@@ -10,15 +10,20 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 from md_studio.core import ir
+from md_studio.core.extensions.audit import AuditLog
 
 
 @dataclass(frozen=True, slots=True)
 class ExtCtx:
-    """Read-only context passed to every extension hook."""
+    """Context passed to every extension hook.
+
+    The fields are fixed, but ``audit`` is a collector extensions append promotions to.
+    """
 
     book: ir.BookMeta
     anchors: frozenset[str] = field(default_factory=frozenset)
     stylesheet: str = ""
+    audit: AuditLog = field(default_factory=AuditLog)
 
 
 class MarkdownExtension:

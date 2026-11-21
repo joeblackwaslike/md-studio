@@ -67,7 +67,7 @@ module = ["md_studio.cli", "md_studio.cli.*"]
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-module = ["lxml.*", "docling.*", "yaml.*"]
+module = ["lxml.*", "docling.*", "yaml.*", "cssutils", "cssutils.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
