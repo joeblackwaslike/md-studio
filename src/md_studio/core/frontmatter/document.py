@@ -46,7 +46,7 @@ def _validate_extra_key(key: str) -> None:
     if key.lower() in _YAML_NON_STRING_KEYS:
         msg = f"invalid front matter extra key {key!r}: YAML reads it as a boolean or null"
         raise MdStudioError(msg)
-    if key in _RESERVED_KEYS:
+    if key.lower() in _RESERVED_KEYS:
         msg = f"front matter extra key {key!r} collides with a reserved key"
         raise MdStudioError(msg)
 
@@ -80,7 +80,7 @@ def _header(meta: ir.BookMeta) -> list[str]:
     if meta.published:
         lines.append(f"published: {yaml_inline_string(meta.published)}")
     if meta.isbn:
-        lines.append(f'isbn: "{meta.isbn}"')
+        lines.append(f"isbn: {yaml_safe_string(meta.isbn)}")
     if meta.language:
         lines.append(f"language: {yaml_inline_string(meta.language)}")
     if meta.source_file:

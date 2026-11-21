@@ -79,10 +79,27 @@ def test_extra_value_with_newline_and_quotes_round_trips() -> None:
     assert parsed["items"] == [_NEWLINE_VALUE, "true", _ODD_VALUE]
 
 
-@pytest.mark.parametrize("key", ["title", "chapters", "source_file"])
+@pytest.mark.parametrize("key", _RESERVED_KEYS)
 def test_extra_key_collision_raises(key: str) -> None:
     with pytest.raises(MdStudioError, match=key):
         build(_meta(), list(_TITLES), _offsets(), _BODY, extra={key: "x"})
+
+
+@pytest.mark.parametrize("key", ["Title", "CHAPTERS", "Source_File"])
+def test_extra_key_collision_is_case_insensitive(key: str) -> None:
+    with pytest.raises(MdStudioError, match=key):
+        build(_meta(), list(_TITLES), _offsets(), _BODY, extra={key: "x"})
+
+
+def test_isbn_with_quote_and_newline_cannot_break_document() -> None:
+    hostile = 'x"\ninjected: yes'
+    meta = ir.BookMeta(title="Book", isbn=hostile)
+
+    front_matter, _ = build(meta, list(_TITLES), _offsets(), _BODY)
+    parsed = _parse(front_matter)
+
+    assert parsed["isbn"] == hostile
+    assert "injected" not in parsed
 
 
 @pytest.mark.parametrize("key", ["", "1abc", "has space", "a:b", "x\ny"])

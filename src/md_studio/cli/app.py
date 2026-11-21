@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from md_studio.cli.vault import VAULT_ENV, SinkChoice, convert_to_vault, require_vault
+from md_studio.cli.vault import VAULT_ENV, SinkChoice, convert_to_vault, open_vault_sink
 from md_studio.core.convert import convert as convert_document
 from md_studio.core.document import Document
 from md_studio.core.exceptions import MdStudioError
@@ -58,7 +58,7 @@ def _same_file(first: Path, second: Path) -> bool:
         raise _fail(f"Cannot compare {second} with the source: {error}") from error
 
 
-def _guarded(action: Callable[[], Path]) -> Path:
+def _guarded[Produced](action: Callable[[], Produced]) -> Produced:
     """Run *action*, mapping expected failures to a CLI exit."""
     try:
         return action()
@@ -87,17 +87,17 @@ def convert(  # noqa: WPS211 -- one parameter per CLI option
         SinkChoice, typer.Option("--sink", help="Where to write the Markdown.")
     ] = SinkChoice.LOCAL,
     vault: Annotated[
-        Path | None,
+        str | None,
         typer.Option("--vault", envvar=VAULT_ENV, help="Obsidian vault directory."),
     ] = None,
 ) -> None:
     """Convert SOURCE to a Markdown file or an Obsidian note."""
     extensions = _split_names(ext)
     if sink is SinkChoice.VAULT:
-        vault_dir = _guarded(lambda: require_vault(vault, output=output, force=force))
+        vault_sink = _guarded(lambda: open_vault_sink(vault, output=output, force=force))
         written = _guarded(
             lambda: convert_to_vault(
-                _read(source), source=source, vault=vault_dir, extensions=extensions
+                _read(source), source=source, sink=vault_sink, extensions=extensions
             )
         )
         typer.echo(f"Wrote {written}")

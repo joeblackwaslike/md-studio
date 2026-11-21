@@ -1,12 +1,14 @@
+import os
 import re
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import yaml
 
 from md_studio.core.convert import RenderedMarkdown, convert
-from md_studio.core.document import Document
+from md_studio.core.document import Document, DocumentMetadata
 from md_studio.readers.epub import read_epub
 from md_studio.sinks import SinkError
 from md_studio.sinks.obsidian import ObsidianSink
@@ -106,6 +108,7 @@ def readonly_vault(tmp_path: Path) -> Iterator[Path]:
     vault.chmod(0o700)
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_unwritable_vault_raises_before_writing(readonly_vault: Path) -> None:
     with pytest.raises(SinkError):
         ObsidianSink(readonly_vault, folder=_FOLDER).write(_rendered(), name="n")
@@ -118,6 +121,13 @@ def test_unwritable_vault_raises_before_writing(readonly_vault: Path) -> None:
     [
         ('a/b\N{REVERSE SOLIDUS}c:d*e?f"g<h>i|j', "a b c d e f g h i j.md"),
         ("..hidden  title ", "hidden title.md"),
+        ("C# Book", "C Book.md"),
+        ("a#[x]^", "a x.md"),
+        ("\u200b\u200b", "untitled.md"),
+        ("a\u202eb", "a b.md"),
+        ("x\x7fy", "x y.md"),
+        ("x\x85y", "x y.md"),
+        ("x\ue000y", "x y.md"),
         (". . x", "x.md"),
         ("a. . ", "a.md"),
         ("a\x00b", "a b.md"),
@@ -170,3 +180,51 @@ def test_nested_relative_folder_allowed(tmp_path: Path) -> None:
     written = sink.write(_rendered(), name="n")
 
     assert written == tmp_path / "vault" / "Books" / "Tech" / "n.md"
+
+
+def test_names_that_sanitize_alike_do_not_overwrite(tmp_path: Path) -> None:
+    sink = ObsidianSink(_vault(tmp_path), folder=_FOLDER)
+    first = sink.write(_rendered("one"), name="a:b")
+
+    with pytest.raises(FileExistsError):
+        sink.write(_rendered("two"), name="a*b")
+
+    assert first.read_text(encoding="utf-8") == "one"
+
+
+def test_properties_without_authors_has_no_author_key(tmp_path: Path) -> None:
+    sink = ObsidianSink(_vault(tmp_path), folder=_FOLDER)
+
+    assert "author" not in sink.properties(DocumentMetadata(title="T"), source="b.epub")
+
+
+def _non_ascii_note(tmp_path: Path) -> bytes:
+    specs = [ChapterSpec("Café", "<h1>Café</h1><p>été</p>"), ChapterSpec("Deux", "<h1>Deux</h1>")]
+    source = read_epub(build_epub(tmp_path / "b.epub", "Zoë 日本", specs))
+    document = replace(source, metadata=replace(source.metadata, authors=("Zoë 日本",)))
+    sink = ObsidianSink(_vault(tmp_path), folder=_FOLDER)
+    extra = sink.properties(document.metadata, source="b.epub")
+    return sink.write(convert(document, extra=extra), name="n").read_bytes()
+
+
+def test_offsets_hold_for_non_ascii_author_and_title(tmp_path: Path) -> None:
+    raw = _non_ascii_note(tmp_path)
+    chapters = _front_matter(raw.decode("utf-8"))["chapters"]
+
+    assert all(raw[chapter["start_byte"] :].startswith(b"## ") for chapter in chapters)
+    assert chapters[-1]["end_byte"] == len(raw) - 1
+
+
+def test_vault_check_reports_folder_that_is_a_file(tmp_path: Path) -> None:
+    vault = _vault(tmp_path)
+    (vault / _FOLDER).write_text("x")
+    sink = ObsidianSink(vault, folder=_FOLDER)
+
+    with pytest.raises(SinkError, match="not a directory"):
+        sink.check()
+    with pytest.raises(SinkError, match="not a directory"):
+        sink.write(_rendered(), name="n")
+
+
+def test_vault_check_passes_for_writable_vault(tmp_path: Path) -> None:
+    ObsidianSink(_vault(tmp_path), folder=_FOLDER).check()

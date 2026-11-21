@@ -1,7 +1,7 @@
 """Sink that writes Markdown as a note inside an Obsidian vault."""
 
 import os
-import re
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
 
@@ -10,7 +10,8 @@ from md_studio.core.document import DocumentMetadata
 from md_studio.sinks import SinkError
 from md_studio.sinks.file import FileSink
 
-_UNSAFE_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\s]+')
+_UNSAFE_CHARS = '\N{REVERSE SOLIDUS}/:*?"<>|#^[]'
+_STRIPPED_CATEGORIES = ("Cc", "Cf", "Cs", "Co")
 _MAX_STEM_BYTES = 237
 _SUFFIX = ".md"
 _FALLBACK_NAME = "untitled"
@@ -19,16 +20,24 @@ _NOTE_TAGS = ("book-notes",)
 _NOTE_STATUS = "draft"
 
 
+def _is_unsafe(char: str) -> bool:
+    """Return whether *char* must not appear in a note filename."""
+    return char in _UNSAFE_CHARS or unicodedata.category(char) in _STRIPPED_CATEGORIES
+
+
 def sanitize_note_name(name: str) -> str:
     """Return *name* reduced to a filename stem Obsidian and common filesystems accept.
 
-    Characters rejected by Obsidian or filesystems become spaces, whitespace is
-    collapsed, and leading dots and spaces and trailing dots and spaces are removed.
-    The stem is cut to fit 237 UTF-8 bytes, so ``<stem>.md`` stays within the common
-    240-byte component limit without splitting a character. An empty result becomes
-    ``untitled``.
+    Characters that filesystems reject (slash, backslash, ``: * ? " < > |``), that break Obsidian
+    links (``# ^ [ ]``), and every character in the Unicode categories Cc, Cf, Cs
+    and Co (controls, DEL, C1, zero-width, bidi and format characters, surrogates,
+    private use) become spaces. Whitespace is collapsed, and leading and trailing dots
+    and spaces are removed. The stem is cut to fit 237 UTF-8 bytes, so ``<stem>.md``
+    stays within the common 240-byte component limit without splitting a character.
+    An empty result becomes ``untitled``.
     """
-    cleaned = _UNSAFE_NAME.sub(" ", name).strip().lstrip(". ")
+    spaced = "".join(" " if _is_unsafe(char) else char for char in name)
+    cleaned = " ".join(spaced.split()).lstrip(". ")
     clipped = cleaned.encode("utf-8")[:_MAX_STEM_BYTES].decode("utf-8", errors="ignore")
     return clipped.rstrip(". ") or _FALLBACK_NAME
 
@@ -77,6 +86,28 @@ class ObsidianSink:
             extra["author"] = list(metadata.authors)
         return extra
 
+    def check(self) -> None:
+        """Verify the destination can take a note, creating nothing.
+
+        Raises
+        ------
+        SinkError
+            When the vault is missing, not a directory, or not writable, or when the
+            notes folder (or a parent of it) exists as something other than a directory.
+        """
+        if not self._vault.is_dir():
+            msg = f"Vault is not a directory: {self._vault}"
+            raise SinkError(msg)
+        if not os.access(self._vault, os.W_OK | os.X_OK):
+            msg = f"Vault is not writable: {self._vault}"
+            raise SinkError(msg)
+        current = self._vault
+        for part in PurePath(self._folder).parts:
+            current /= part
+            if current.exists() and not current.is_dir():
+                msg = f"Notes folder is not a directory: {current}"
+                raise SinkError(msg)
+
     def write(self, rendered: RenderedMarkdown, *, name: str) -> Path:
         """Write *rendered* as ``<vault>/<folder>/<sanitized name>.md``, creating the folder.
 
@@ -100,15 +131,6 @@ class ObsidianSink:
         FileExistsError
             When a note with that name already exists.
         """
-        self._check_vault()
+        self.check()
         dest = self._vault / self._folder / f"{sanitize_note_name(name)}{_SUFFIX}"
         return FileSink(dest).write(rendered, name=name)
-
-    def _check_vault(self) -> None:
-        """Raise :class:`SinkError` unless the vault is a writable directory."""
-        if not self._vault.is_dir():
-            msg = f"Vault is not a directory: {self._vault}"
-            raise SinkError(msg)
-        if not os.access(self._vault, os.W_OK | os.X_OK):
-            msg = f"Vault is not writable: {self._vault}"
-            raise SinkError(msg)
