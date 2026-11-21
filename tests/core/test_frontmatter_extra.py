@@ -1,12 +1,18 @@
 """Tests for caller-supplied front-matter extra properties."""
 
+from pathlib import Path
+
 import pytest
 import yaml
 
 from md_studio.core import ir
+from md_studio.core.convert import convert
 from md_studio.core.exceptions import MdStudioError
 from md_studio.core.frontmatter import build
+from md_studio.core.frontmatter.document import _RESERVED_KEYS
 from md_studio.core.render import ChapterOffset
+from md_studio.readers.epub import read_epub
+from tests.readers._epub import ChapterSpec, build_epub
 
 _BODY = "## One\n\naaa\n\n## Tëst Two\n\nbbb\n"
 _SECOND_BYTE = len(b"## One\n\naaa\n\n")
@@ -85,9 +91,101 @@ def test_invalid_extra_key_raises(key: str) -> None:
         build(_meta(), list(_TITLES), _offsets(), _BODY, extra={key: "x"})
 
 
+_EXPECTED_DEFAULT = """---
+title: Book
+authors: [A]
+isbn: "9781234567890"
+source_file: b.epub
+chapters:
+  - title: One
+    start_line:         18
+    end_line:         21
+    start_byte:        329
+    end_byte:        341
+  - title: Tëst Two
+    start_line:         22
+    end_line:         24
+    start_byte:        342
+    end_byte:        359
+---
+"""
+_SPECS = (ChapterSpec("Intro", "<p>ça va</p>"), ChapterSpec("Café ☕", "<p>naïve</p>"))
+_MULTIBYTE = "Café ☕ 日本語"
+_ESCAPE_CASES = (
+    "\x7f",
+    "\x85",
+    "\u2028",
+    "\u2029",
+    "\x00",
+    "\x1f",
+    "\U0001f600",
+    f'{_BACKSLASH}"',
+    f'"{_BACKSLASH}',
+)
+
+
 @pytest.mark.parametrize("extra", [None, {}])
 def test_no_extra_leaves_output_unchanged(extra: dict[str, str | list[str]] | None) -> None:
-    baseline = build(_meta(), list(_TITLES), _offsets(), _BODY)
+    front_matter, _ = build(_meta(), list(_TITLES), _offsets(), _BODY, extra=extra)
 
-    assert build(_meta(), list(_TITLES), _offsets(), _BODY, extra=extra) == baseline
-    assert "tags" not in baseline[0]
+    assert front_matter == _EXPECTED_DEFAULT
+
+
+def test_empty_list_and_empty_string_round_trip() -> None:
+    extra: dict[str, str | list[str]] = {"tags": [], "note": ""}
+    front_matter, _ = build(_meta(), list(_TITLES), _offsets(), _BODY, extra=extra)
+    parsed = _parse(front_matter)
+
+    assert parsed["tags"] == []
+    assert parsed["note"] == ""
+
+
+def test_multibyte_extra_keeps_offsets_and_lines_valid(tmp_path: Path) -> None:
+    extra: dict[str, str | list[str]] = {"note": _MULTIBYTE, "tags": [_MULTIBYTE, "日本", "x"]}
+    rendered = convert(
+        read_epub(build_epub(tmp_path / "m.epub", "Unicode", list(_SPECS))), extra=extra
+    )
+    raw = rendered.text.encode("utf-8")
+    lines = rendered.text.split("\n")
+
+    assert len(rendered.chapters) == len(_SPECS)
+    for entry in rendered.chapters:
+        assert raw[entry.start_byte : entry.end_byte + 1].startswith(f"## {entry.title}".encode())
+        assert lines[entry.start_line - 1].startswith(f"## {entry.title}")
+    assert rendered.chapters[-1].end_byte == len(raw) - 1
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["on", "off", "yes", "no", "y", "n", "true", "false", "null", "Yes", "NULL", "True"],
+)
+def test_yaml_non_string_extra_key_raises(key: str) -> None:
+    with pytest.raises(MdStudioError, match="boolean or null"):
+        build(_meta(), list(_TITLES), _offsets(), _BODY, extra={key: "x"})
+
+
+def test_reserved_keys_cover_every_header_key() -> None:
+    meta = ir.BookMeta(
+        title="T",
+        authors=("A",),
+        publisher="P",
+        published="2024-01-02",
+        isbn="9781234567890",
+        language="en",
+        source_file="b.epub",
+    )
+    front_matter, _ = build(meta, list(_TITLES), _offsets(), _BODY)
+    emitted = set(_parse(front_matter))
+
+    assert emitted <= set(_RESERVED_KEYS)
+    assert set(_RESERVED_KEYS) - emitted == set()
+
+
+@pytest.mark.parametrize("raw", _ESCAPE_CASES)
+def test_escaper_round_trips_special_characters(raw: str) -> None:
+    extra: dict[str, str | list[str]] = {"note": raw, "items": [raw]}
+    front_matter, _ = build(_meta(), list(_TITLES), _offsets(), _BODY, extra=extra)
+    parsed = _parse(front_matter)
+
+    assert parsed["note"] == raw
+    assert parsed["items"] == [raw]

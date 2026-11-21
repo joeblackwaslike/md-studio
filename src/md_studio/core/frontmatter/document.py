@@ -33,24 +33,39 @@ _RESERVED_KEYS = (
     "chapters",
 )
 
+_YAML_NON_STRING_KEYS = ("on", "off", "yes", "no", "y", "n", "true", "false", "null")
+
 ExtraProperties = Mapping[str, str | list[str]]
+
+
+def _validate_extra_key(key: str) -> None:
+    """Raise :class:`MdStudioError` when *key* is not a safe extra property key."""
+    if not _KEY_PATTERN.fullmatch(key):
+        msg = f"invalid front matter extra key {key!r}: must match [A-Za-z_][A-Za-z0-9_-]*"
+        raise MdStudioError(msg)
+    if key.lower() in _YAML_NON_STRING_KEYS:
+        msg = f"invalid front matter extra key {key!r}: YAML reads it as a boolean or null"
+        raise MdStudioError(msg)
+    if key in _RESERVED_KEYS:
+        msg = f"front matter extra key {key!r} collides with a reserved key"
+        raise MdStudioError(msg)
+
+
+def _extra_value_lines(key: str, entry: str | list[str]) -> list[str]:
+    """Render one extra property as a scalar, an empty list, or a block list."""
+    if isinstance(entry, str):
+        return [f"{key}: {yaml_safe_string(entry)}"]
+    if entry:
+        return [f"{key}:", *(f"  - {yaml_safe_string(element)}" for element in entry)]
+    return [f"{key}: []"]
 
 
 def _extra_lines(extra: ExtraProperties | None) -> list[str]:
     """Validate and render caller-supplied extra properties."""
     lines: list[str] = []
     for key, entry in (extra or {}).items():
-        if not _KEY_PATTERN.fullmatch(key):
-            msg = f"invalid front matter extra key {key!r}: must match [A-Za-z_][A-Za-z0-9_-]*"
-            raise MdStudioError(msg)
-        if key in _RESERVED_KEYS:
-            msg = f"front matter extra key {key!r} collides with a reserved key"
-            raise MdStudioError(msg)
-        if isinstance(entry, str):
-            lines.append(f"{key}: {yaml_safe_string(entry)}")
-        else:
-            lines.append(f"{key}:")
-            lines.extend(f"  - {yaml_safe_string(element)}" for element in entry)
+        _validate_extra_key(key)
+        lines.extend(_extra_value_lines(key, entry))
     return lines
 
 
@@ -126,7 +141,9 @@ def build(
         ``str`` renders as a double-quoted scalar, a ``list[str]`` as a block
         list. Keys must match ``[A-Za-z_][A-Za-z0-9_-]*`` and must not be
         ``title``, ``authors``, ``publisher``, ``published``, ``isbn``,
-        ``language``, ``source_file`` or ``chapters``.
+        ``language``, ``source_file`` or ``chapters``, and must not be a YAML 1.1
+        boolean or null word (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``,
+        ``true``, ``false``, ``null``, any case). An empty list renders as ``[]``.
 
     Raises
     ------
