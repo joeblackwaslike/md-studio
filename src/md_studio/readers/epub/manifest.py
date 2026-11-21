@@ -6,6 +6,7 @@ import zipfile
 from lxml import etree
 
 from md_studio.core.exceptions import ReadError
+from md_studio.readers.epub.archive import read_member
 from md_studio.readers.epub.models import CONTAINER_PATH
 from md_studio.readers.epub.xml import anywhere, local, parse_xml
 
@@ -20,7 +21,7 @@ def resolve(base_dir: str, href: str) -> str:
 def opf_path(archive: zipfile.ZipFile) -> str:
     """Return the OPF path declared in ``META-INF/container.xml``."""
     try:
-        container = archive.read(CONTAINER_PATH)
+        container = read_member(archive, CONTAINER_PATH)
     except KeyError as exc:
         raise ReadError(f"EPUB missing {CONTAINER_PATH}") from exc
     root = parse_xml(container, source=CONTAINER_PATH)

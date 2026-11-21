@@ -1,5 +1,7 @@
 """Tests for the hand-rolled EPUB reader."""
 
+import re
+import struct
 import zipfile
 from pathlib import Path
 
@@ -71,3 +73,54 @@ def test_falls_back_to_heading_title(tmp_path: Path) -> None:
     document = read_epub(epub)
     # The NCX label wins when present.
     assert document.chapters[0].title == "Ignored"
+
+
+def test_epub_without_chapters_raises(tmp_path: Path) -> None:
+    epub = build_epub(tmp_path / "empty.epub", "Empty", [])
+
+    with pytest.raises(ReadError, match="EPUB has no readable chapters") as caught:
+        read_epub(epub)
+
+    assert str(epub) in str(caught.value)
+
+
+_ENCRYPTED_FLAG = 0x1
+_UNSUPPORTED_METHOD = 99
+_CENTRAL_ENTRY = re.compile(rb"PK\x01\x02.{42}OEBPS/ch0\.xhtml", re.DOTALL)
+_FLAGS_OFFSET = 8
+_DEFLATED = zipfile.ZIP_DEFLATED
+
+
+def _corrupt_chapter_entry(path: Path, *, flags: int, method: int) -> None:
+    """Overwrite the chapter's flag bits and compression method in the central directory."""
+    blob = bytearray(path.read_bytes())
+    entry = _CENTRAL_ENTRY.search(bytes(blob))
+    assert entry is not None
+    struct.pack_into("<HH", blob, entry.start() + _FLAGS_OFFSET, flags, method)
+    path.write_bytes(bytes(blob))
+
+
+@pytest.mark.parametrize(
+    ("flags", "method", "reason"),
+    [
+        (_ENCRYPTED_FLAG, _DEFLATED, "encrypted"),
+        (0, _UNSUPPORTED_METHOD, "compression"),
+    ],
+)
+def test_unreadable_member_raises_read_error(
+    tmp_path: Path, flags: int, method: int, reason: str
+) -> None:
+    epub = build_epub(tmp_path / "bad.epub", "T", [ChapterSpec("One", "<p>x</p>")])
+    _corrupt_chapter_entry(epub, flags=flags, method=method)
+
+    with pytest.raises(ReadError, match=reason):
+        read_epub(epub)
+
+
+def test_oversize_member_raises_read_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    big = ChapterSpec("One", "<p>x</p>" * 100)
+    epub = build_epub(tmp_path / "big.epub", "T", [big])
+    monkeypatch.setattr("md_studio.readers.epub.archive.MAX_MEMBER_BYTES", 100)
+
+    with pytest.raises(ReadError, match="exceeds"):
+        read_epub(epub)

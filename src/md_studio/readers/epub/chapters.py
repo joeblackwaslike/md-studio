@@ -9,6 +9,7 @@ from lxml import etree, html
 from md_studio.core.document import SourceChapter
 from md_studio.core.exceptions import ReadError
 from md_studio.readers.epub import manifest
+from md_studio.readers.epub.archive import read_member
 from md_studio.readers.epub.models import CONTENT_ID, XHTML_MEDIA_TYPES
 from md_studio.readers.epub.xml import local, parse_xml
 
@@ -18,7 +19,7 @@ def _title_map(archive: zipfile.ZipFile, ncx_path: str) -> dict[str, str]:
     if not ncx_path:
         return {}
     try:
-        ncx_bytes = archive.read(ncx_path)
+        ncx_bytes = read_member(archive, ncx_path)
     except KeyError:
         return {}
     root = parse_xml(ncx_bytes, source=ncx_path)
@@ -60,7 +61,7 @@ def _fallback_title(element: html.HtmlElement, href: str) -> str:  # type: ignor
 def _read_chapter(archive: zipfile.ZipFile, href: str, titles: dict[str, str]) -> SourceChapter:
     """Read and parse a single spine document into an :class:`SourceChapter`."""
     try:
-        chapter_bytes = archive.read(href)
+        chapter_bytes = read_member(archive, href)
     except KeyError as exc:
         raise ReadError(f"Spine references missing file: {href}") from exc
     try:

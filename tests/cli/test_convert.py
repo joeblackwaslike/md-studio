@@ -142,3 +142,14 @@ def test_cli_refuses_aliased_source_output(tmp_path: Path) -> None:
 
     assert outcome.exit_code == 1
     assert "source" in outcome.output
+
+
+def test_cli_reports_epub_without_chapters_as_one_line_error(tmp_path: Path) -> None:
+    empty = build_epub(tmp_path / "empty.epub", "Empty", [])
+
+    outcome = _convert(empty)
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
