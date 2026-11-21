@@ -125,3 +125,41 @@ def test_file_sink_rejects_destination_below_a_file(tmp_path: Path) -> None:
 
     with pytest.raises(OSError, match="blocker"):
         FileSink(blocker / "x.md").write(_rendered(), name="book")
+
+
+def test_file_sink_create_failure_removes_partial_file_and_allows_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "book.md"
+    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _fail_midway)
+
+    with pytest.raises(OSError, match="disk full"):
+        FileSink(dest).write(_rendered(), name="book")
+
+    assert not dest.exists()
+    monkeypatch.undo()
+    FileSink(dest).write(_rendered(), name="book")
+    assert dest.read_text(encoding="utf-8") == _rendered().text
+
+
+class _Interrupted(BaseException):  # noqa: WPS418
+    """Stands in for KeyboardInterrupt."""
+
+
+def _interrupt_midway(path: Path, payload: bytes) -> None:
+    path.write_bytes(payload[:3])
+    raise _Interrupted
+
+
+def test_file_sink_force_interrupt_keeps_original_and_leaves_no_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "book.md"
+    dest.write_text("old", encoding="utf-8")
+    monkeypatch.setattr("md_studio.sinks.file._write_exclusive", _interrupt_midway)
+
+    with pytest.raises(_Interrupted):
+        FileSink(dest, force=True).write(_rendered(), name="book")
+
+    assert dest.read_text(encoding="utf-8") == "old"
+    assert list(tmp_path.iterdir()) == [dest]

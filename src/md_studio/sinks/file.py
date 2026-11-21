@@ -84,12 +84,15 @@ class FileSink:
         except FileExistsError as error:
             msg = f"Refusing to overwrite existing file: {self._dest}"
             raise FileExistsError(msg) from error
+        except OSError:
+            self._dest.unlink(missing_ok=True)
+            raise
 
     def _replace(self, payload: bytes) -> None:
         """Write *payload* to a sibling temporary file and move it over the destination."""
         staging = _staging_path(self._dest)
         try:
             _stage_and_move(staging, self._dest, payload)
-        except OSError:
+        except BaseException:
             staging.unlink(missing_ok=True)
             raise

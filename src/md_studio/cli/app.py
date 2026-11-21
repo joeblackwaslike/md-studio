@@ -38,7 +38,7 @@ def _split_names(raw: str | None) -> list[str] | None:
     Surrounding spaces and empty entries (for example a trailing comma) are ignored.
     A non-empty value that yields no names is an error.
     """
-    if not raw:
+    if raw is None:
         return None
     names = [name.strip() for name in raw.split(",") if name.strip()]
     if not names:
@@ -47,10 +47,13 @@ def _split_names(raw: str | None) -> list[str] | None:
 
 
 def _same_file(first: Path, second: Path) -> bool:
-    """Return whether two paths refer to the same file, existing or not."""
-    if first.resolve() == second.resolve():
-        return True
-    return first.exists() and second.exists() and first.samefile(second)
+    """Return whether two paths resolve to, or are hard links of, the same file."""
+    try:
+        return first.resolve() == second.resolve() or (
+            first.exists() and second.exists() and first.samefile(second)
+        )
+    except (OSError, RuntimeError) as error:
+        raise _fail(f"Cannot compare {second} with the source: {error}") from error
 
 
 def _convert_to_file(

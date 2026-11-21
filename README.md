@@ -20,7 +20,7 @@ The output defaults to `BOOK.md` next to the source. `--ext` takes comma-separat
 
 The `md-studio` console script needs the `md-studio[cli]` extra. The library (`md_studio.core`, `md_studio.readers`) has no CLI dependencies.
 
-Exit codes: `0` on success, `1` on any error (printed as one `Error: ...` line).
+Exit codes: `0` on success, `1` on any conversion error (printed as one `Error: ...` line), `2` on usage errors (bad or missing arguments).
 
 ## Development
 

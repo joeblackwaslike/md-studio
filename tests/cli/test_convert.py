@@ -94,7 +94,7 @@ def test_cli_reports_directory_dest_cleanly(tmp_path: Path) -> None:
     assert len(outcome.output.strip().splitlines()) == 1
 
 
-@pytest.mark.parametrize("raw", [",", " ", " , "])
+@pytest.mark.parametrize("raw", ["", ",", " ", " , "])
 def test_cli_rejects_ext_without_names(tmp_path: Path, raw: str) -> None:
     outcome = _convert(_epub(tmp_path), "--ext", raw)
 
@@ -153,3 +153,33 @@ def test_cli_reports_epub_without_chapters_as_one_line_error(tmp_path: Path) -> 
     assert "Traceback" not in outcome.output
     assert outcome.output.startswith("Error:")
     assert len(outcome.output.strip().splitlines()) == 1
+
+
+def test_cli_reports_symlink_loop_output_as_one_line_error(tmp_path: Path) -> None:
+    loop = tmp_path / "loop.md"
+    loop.symlink_to(loop)
+
+    outcome = _convert(_epub(tmp_path), "-o", loop, "--force")
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
+
+
+def test_cli_reports_unresolvable_output_path_as_one_line_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _epub(tmp_path)
+    monkeypatch.setattr(Path, "resolve", _raise_loop)
+
+    outcome = _convert(source, "-o", tmp_path / "out.md")
+
+    assert outcome.exit_code == 1
+    assert "Traceback" not in outcome.output
+    assert outcome.output.startswith("Error:")
+    assert len(outcome.output.strip().splitlines()) == 1
+
+
+def _raise_loop(self: Path, strict: bool = False) -> Path:  # noqa: FBT001, FBT002
+    raise RuntimeError(f"Symlink loop from {self}")

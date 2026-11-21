@@ -105,6 +105,7 @@ def _studio_markdown(epub: Path, out: Path, extensions: str) -> bytes:
 
 
 def _baseline_markdown(baseline: Path, epub: Path, out: Path, extensions: str) -> bytes:
+    out.parent.mkdir()
     script = out.parent / "run.py"
     script.write_text(_SCRIPT, encoding="utf-8")
     command = ["uv", "run", "--no-project", "--python", sys.executable, *_WITH_FLAGS]
@@ -124,6 +125,16 @@ def _baseline_head(baseline: Path) -> str:
     return done.stdout.strip()
 
 
+def _baseline_status(baseline: Path) -> str:
+    done = subprocess.run(
+        ["git", "-C", str(baseline), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return done.stdout
+
+
 @pytest.mark.parametrize("case", CASES)
 def test_output_matches_committed_baseline_golden(tmp_path: Path, case: ParityCase) -> None:
     golden = (GOLDEN_DIR / f"{case.name}.md").read_bytes()
@@ -138,11 +149,13 @@ def test_output_matches_committed_baseline_golden(tmp_path: Path, case: ParityCa
 def test_output_matches_safaribooks_baseline(tmp_path: Path, case: ParityCase) -> None:
     baseline = Path(str(BASELINE))
     assert _baseline_head(baseline).startswith(BASELINE_SHA)
+    status_before = _baseline_status(baseline)
     epub = _rich_epub(tmp_path)
-    baseline_dir = tmp_path / "baseline"
-    baseline_dir.mkdir()
 
-    expected = _baseline_markdown(baseline, epub, baseline_dir / "book.md", case.extensions)
+    expected = _baseline_markdown(
+        baseline, epub, tmp_path / "baseline" / "book.md", case.extensions
+    )
     actual = _studio_markdown(epub, tmp_path / "out.md", case.extensions)
 
     assert actual == expected
+    assert _baseline_status(baseline) == status_before

@@ -206,3 +206,17 @@ def test_oversize_member_raises_read_error(tmp_path: Path, monkeypatch: pytest.M
 
     with pytest.raises(ReadError, match="exceeds"):
         read_epub(epub)
+
+
+def test_unrelated_runtime_error_from_parsing_is_not_relabelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    epub = build_epub(tmp_path / "p.epub", "T", [ChapterSpec("One", "<p>x</p>")])
+    monkeypatch.setattr("md_studio.readers.epub.document.parse_xml", _explode)
+
+    with pytest.raises(RuntimeError, match="parser bug"):
+        read_epub(epub)
+
+
+def _explode(raw: bytes, *, source: str) -> None:
+    raise RuntimeError("parser bug")

@@ -7,7 +7,6 @@ chapter XHTML), so it works on any EPUB, including ones downloaded earlier.
 
 import posixpath
 import zipfile
-import zlib
 from pathlib import Path
 
 from md_studio.core.document import Document
@@ -15,14 +14,6 @@ from md_studio.core.exceptions import ReadError
 from md_studio.readers.epub import chapters, manifest, metadata
 from md_studio.readers.epub.archive import read_member
 from md_studio.readers.epub.xml import parse_xml
-
-_ARCHIVE_ERRORS = (
-    zipfile.LargeZipFile,
-    RuntimeError,
-    NotImplementedError,
-    zlib.error,
-    EOFError,
-)
 
 
 def _read_member(archive: zipfile.ZipFile, path: str) -> bytes:
@@ -74,5 +65,3 @@ def read_epub(path: Path) -> Document:
             return _read_document(archive, path)
     except zipfile.BadZipFile as exc:
         raise ReadError(f"Not a valid EPUB (zip) file: {path}") from exc
-    except _ARCHIVE_ERRORS as exc:
-        raise ReadError(f"Cannot read EPUB {path}: {exc}") from exc
