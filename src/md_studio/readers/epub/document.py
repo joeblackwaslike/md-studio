@@ -11,7 +11,7 @@ from pathlib import Path
 
 from md_studio.core.document import Document
 from md_studio.core.exceptions import ReadError
-from md_studio.readers.epub import chapters, manifest, metadata
+from md_studio.readers.epub import chapters, manifest, metadata, stylesheet
 from md_studio.readers.epub.archive import read_member
 from md_studio.readers.epub.xml import parse_xml
 
@@ -35,6 +35,7 @@ def _read_document(archive: zipfile.ZipFile, source_path: Path) -> Document:
     return Document(
         metadata=metadata.read_metadata(opf_root, source_file=source_path.name),
         chapters=spine,
+        stylesheet=stylesheet.read_stylesheet(archive, opf_root, opf_dir),
     )
 
 

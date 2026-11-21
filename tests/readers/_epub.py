@@ -41,10 +41,18 @@ def _itemref(chapter_index: int) -> str:
     return f'    <itemref idref="ch{chapter_index}"/>'
 
 
-def _content_opf(title: str, isbn: str, specs: list[ChapterSpec]) -> str:
+def _css_item(index: int) -> str:
+    """Render a content.opf manifest ``<item>`` entry for stylesheet *index*."""
+    return f'    <item id="css{index}" href="css/s{index}.css" media-type="text/css"/>'
+
+
+def _content_opf(
+    title: str, isbn: str, specs: list[ChapterSpec], stylesheets: tuple[str, ...] = ()
+) -> str:
     """Render a minimal content.opf with metadata, manifest, and spine."""
     indices = range(len(specs))
     manifest_entries = [_manifest_item(index) for index in indices]
+    manifest_entries.extend(_css_item(index) for index in range(len(stylesheets)))
     manifest_items = "\n".join(manifest_entries)
     itemrefs = [_itemref(index) for index in indices]
     refs = "\n".join(itemrefs)
@@ -94,15 +102,47 @@ def _toc_ncx(specs: list[ChapterSpec]) -> str:
 
 
 def build_epub(
-    path: Path, title: str, specs: list[ChapterSpec], *, isbn: str = "9781234567890"
+    path: Path,
+    title: str,
+    specs: list[ChapterSpec],
+    *,
+    isbn: str = "9781234567890",
+    stylesheets: tuple[str, ...] = (),
 ) -> Path:
-    """Write a minimal but valid EPUB to *path* and return it."""
+    """Write a minimal but valid EPUB to *path* and return it.
+
+    Each entry of *stylesheets* becomes a ``text/css`` manifest item, in order.
+    """
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("mimetype", "application/epub+zip")
         zf.writestr("META-INF/container.xml", _CONTAINER)
-        zf.writestr("OEBPS/content.opf", _content_opf(title, isbn, specs))
+        zf.writestr("OEBPS/content.opf", _content_opf(title, isbn, specs, stylesheets))
         zf.writestr("OEBPS/toc.ncx", _toc_ncx(specs))
+        for index, sheet in enumerate(stylesheets):
+            zf.writestr(f"OEBPS/css/s{index}.css", sheet)
         for index, spec in enumerate(specs):
             xhtml = _CHAPTER_TEMPLATE.format(title=spec.title, body=spec.body)
             zf.writestr(f"OEBPS/ch{index}.xhtml", xhtml)
     return path
+
+
+CSS_HEADINGS_STYLESHEET = """
+.class-part { font-size: 2.333rem; font-weight: bold; }
+.class-section { font-size: 1.667rem; }
+.class-sub { font-size: 1.2rem; font-weight: 700; text-transform: uppercase; }
+.class-body { font-size: 1rem; }
+"""
+
+CSS_HEADINGS_BODY = (
+    '<div class="class-part">Part One</div>'
+    '<div class="class-body">Plain body text.</div>'
+    '<div class="class-section">Section A</div>'
+    '<div class="class-body">More body text.</div>'
+    '<div class="class-sub">Sub A1</div>'
+)
+
+
+def build_css_headings_epub(path: Path) -> Path:
+    """Write an EPUB whose headings are CSS-styled ``div`` classes, not ``<hN>`` tags."""
+    specs = [ChapterSpec("Chapter One", CSS_HEADINGS_BODY)]
+    return build_epub(path, "Styled", specs, stylesheets=(CSS_HEADINGS_STYLESHEET,))

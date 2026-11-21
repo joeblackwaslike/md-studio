@@ -59,7 +59,7 @@ def convert(
 
     """
     meta, chapters = assemble.assemble(document)
-    chapters = _apply_extensions(meta, chapters, extensions or [])
+    chapters = _apply_extensions(meta, chapters, extensions or [], document.stylesheet)
 
     rendered = Renderer().render(chapters)
     front_matter, ranges = frontmatter.build(
@@ -81,9 +81,10 @@ def _apply_extensions(
     meta: ir.BookMeta,
     chapters: tuple[ir.ChapterIR, ...],
     extensions: list[str],
+    stylesheet: str,
 ) -> tuple[ir.ChapterIR, ...]:
     """Resolve and run the configured extension pipeline over *chapters*."""
     resolved = pipeline.resolve(extensions)
     anchors = frozenset(note.identifier for chapter in chapters for note in chapter.footnotes)
-    ctx = ExtCtx(book=meta, anchors=anchors)
+    ctx = ExtCtx(book=meta, anchors=anchors, stylesheet=stylesheet)
     return pipeline.run(chapters, ctx, resolved)
