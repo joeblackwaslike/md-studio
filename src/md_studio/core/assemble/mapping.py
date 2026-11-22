@@ -73,5 +73,9 @@ def _assemble_chapter(index: int, chapter: SourceChapter) -> ir.ChapterIR:
     notes, body = _split_footnotes(extract.blocks_from_element(chapter.element))
     mapping = {note.identifier: f"c{index}-{note.identifier}" for note in notes if note.identifier}
     body_blocks = tuple(rewrite_block(block, mapping) for block in body)
-    title = _chapter_title(index, chapter.title)
-    return ir.ChapterIR(title=title, blocks=body_blocks, footnotes=_namespace(notes, mapping))
+    return ir.ChapterIR(
+        title=_chapter_title(index, chapter.title),
+        blocks=body_blocks,
+        footnotes=_namespace(notes, mapping),
+        title_is_fallback=chapter.title_is_fallback or not chapter.title,
+    )

@@ -6,6 +6,7 @@ that match a known target are kept; everything else (typically leftover
 """
 
 import re
+from dataclasses import replace
 from functools import partial
 from typing import ClassVar
 
@@ -47,10 +48,6 @@ class FixBrokenLinks(MarkdownExtension):
         """Return *chapters* with unresolvable links unwrapped to their text."""
         unwrap = partial(_unwrap_broken, anchors=ctx.anchors)
         return tuple(
-            ir.ChapterIR(
-                title=chapter.title,
-                blocks=transform.map_inlines(chapter.blocks, unwrap),
-                footnotes=chapter.footnotes,
-            )
+            replace(chapter, blocks=transform.map_inlines(chapter.blocks, unwrap))
             for chapter in chapters
         )

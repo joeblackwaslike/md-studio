@@ -179,22 +179,6 @@ def test_classify_reads_a_stylesheet_of_a_real_books_size() -> None:
     assert css_headings.classify(f"{filler}.late{{font-size:2rem}}") == {"late": 1}
 
 
-def test_first_promoted_heading_replaces_a_file_stem_chapter_title(tmp_path: Path) -> None:
-    body = '<div class="class-part">Dedication</div><div class="class-body">For you.</div>'
-    epub = build_epub(
-        tmp_path / "stem.epub",
-        "Stem",
-        [ChapterSpec("xhtml-0-2", body)],
-        stylesheets=(CSS_HEADINGS_STYLESHEET,),
-    )
-
-    rendered = convert(read_epub(epub), extensions=["fix-headings"])
-
-    assert [chapter.title for chapter in rendered.chapters] == ["Dedication"]
-    assert rendered.body.count("Dedication") == 1
-    assert "xhtml-0-2" not in rendered.text
-
-
 def test_real_chapter_title_is_kept_when_first_block_is_promoted(tmp_path: Path) -> None:
     rendered = convert(
         read_epub(build_css_headings_epub(tmp_path / "styled.epub")), extensions=["fix-headings"]
@@ -210,32 +194,58 @@ def test_classify_ignores_rules_past_the_size_cap(monkeypatch: pytest.MonkeyPatc
     assert css_headings.classify(sheet) == {"early": 1}
 
 
-def _first_block_promoted(tmp_path: Path, title: str, *extensions: str):
+def _first_block_promoted(tmp_path: Path, title: str, *extensions: str, labelled: bool = True):
     body = '<div class="class-part">Dedication</div><div class="class-body">For you.</div>'
     epub = build_epub(
-        tmp_path / "t.epub", "T", [ChapterSpec(title, body)], stylesheets=(CSS_HEADINGS_STYLESHEET,)
+        tmp_path / "t.epub",
+        "T",
+        [ChapterSpec(title, body)],
+        stylesheets=(CSS_HEADINGS_STYLESHEET,),
+        labelled=labelled,
     )
     return convert(read_epub(epub), extensions=list(extensions))
 
 
-@pytest.mark.parametrize("title", ["xhtml-0-2", "ch1", "part3", "chapter_01", "Split-12"])
-def test_file_stem_titles_are_replaced(tmp_path: Path, title: str) -> None:
-    rendered = _first_block_promoted(tmp_path, title, "fix-headings")
+def test_a_stem_fallback_title_is_retitled_from_the_promoted_first_block(tmp_path: Path) -> None:
+    rendered = _first_block_promoted(tmp_path, "ignored", "fix-headings", labelled=False)
+
+    assert [chapter.title for chapter in rendered.chapters] == ["Dedication"]
+    assert rendered.body.count("Dedication") == 1
+    assert "ch0" not in rendered.text
+
+
+def test_retitling_survives_other_extensions_rebuilding_the_chapter(tmp_path: Path) -> None:
+    names = ("remove-footnotes", "fix-broken-links", "reformat-toc", "fix-headings")
+    rendered = _first_block_promoted(tmp_path, "ignored", *names, labelled=False)
 
     assert [chapter.title for chapter in rendered.chapters] == ["Dedication"]
 
 
-@pytest.mark.parametrize("title", ["1984", "Web3", "COVID-19", "A1", "3.1", "Intro 2"])
-def test_real_titles_with_digits_are_kept(tmp_path: Path, title: str) -> None:
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Part3",
+        "Section2",
+        "ch1",
+        "xhtml-0-2",
+        "chapter_01",
+        "1984",
+        "Web3",
+        "COVID-19",
+        "A1",
+        "3.1",
+    ],
+)
+def test_an_explicit_label_is_never_overwritten(tmp_path: Path, title: str) -> None:
     rendered = _first_block_promoted(tmp_path, title, "fix-headings")
 
     assert [chapter.title for chapter in rendered.chapters] == [title]
 
 
-def test_stem_like_title_is_left_alone_without_fix_headings(tmp_path: Path) -> None:
-    rendered = _first_block_promoted(tmp_path, "xhtml-0-2")
+def test_a_stem_fallback_title_is_left_alone_without_fix_headings(tmp_path: Path) -> None:
+    rendered = _first_block_promoted(tmp_path, "ignored", labelled=False)
 
-    assert [chapter.title for chapter in rendered.chapters] == ["xhtml-0-2"]
+    assert [chapter.title for chapter in rendered.chapters] == ["ch0"]
 
 
 def test_uppercase_does_not_split_a_size_tie() -> None:

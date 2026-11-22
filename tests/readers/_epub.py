@@ -88,9 +88,9 @@ def _navpoint(chapter_index: int, spec: ChapterSpec) -> str:
     </navPoint>"""
 
 
-def _toc_ncx(specs: list[ChapterSpec]) -> str:
+def _toc_ncx(specs: list[ChapterSpec], *, labelled: bool = True) -> str:
     """Render a minimal toc.ncx mapping chapter files to nav labels."""
-    navpoints = [_navpoint(index, spec) for index, spec in enumerate(specs)]
+    navpoints = [_navpoint(index, spec) for index, spec in enumerate(specs)] if labelled else []
     points = "\n".join(navpoints)
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
@@ -108,16 +108,18 @@ def build_epub(
     *,
     isbn: str = "9781234567890",
     stylesheets: tuple[str, ...] = (),
+    labelled: bool = True,
 ) -> Path:
     """Write a minimal but valid EPUB to *path* and return it.
 
-    Each entry of *stylesheets* becomes a ``text/css`` manifest item, in order.
+    Each entry of *stylesheets* becomes a ``text/css`` manifest item, in order. With
+    ``labelled=False`` the NCX has no entries, so the reader falls back to file-stem titles.
     """
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("mimetype", "application/epub+zip")
         zf.writestr("META-INF/container.xml", _CONTAINER)
         zf.writestr("OEBPS/content.opf", _content_opf(title, isbn, specs, stylesheets))
-        zf.writestr("OEBPS/toc.ncx", _toc_ncx(specs))
+        zf.writestr("OEBPS/toc.ncx", _toc_ncx(specs, labelled=labelled))
         for index, sheet in enumerate(stylesheets):
             zf.writestr(f"OEBPS/css/s{index}.css", sheet)
         for index, spec in enumerate(specs):

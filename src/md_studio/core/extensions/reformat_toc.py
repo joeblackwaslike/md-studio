@@ -1,6 +1,7 @@
 """Extension: rebuild a table-of-contents chapter as a clean nested list."""
 
 import re
+from dataclasses import replace
 from typing import ClassVar
 
 from md_studio.core import ir
@@ -33,7 +34,7 @@ def _rebuild_toc(chapter: ir.ChapterIR, listed: list[str]) -> ir.ChapterIR:
         return chapter
     other_titles = [title for title in listed if not titles_match(title, chapter.title)]
     body = (_toc_list(other_titles),)
-    return ir.ChapterIR(title=chapter.title, blocks=body, footnotes=())
+    return replace(chapter, blocks=body, footnotes=())
 
 
 class ReformatToc(MarkdownExtension):

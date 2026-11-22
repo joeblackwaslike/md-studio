@@ -14,6 +14,7 @@ An element with several heading classes takes the most prominent (lowest) level.
 
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import ClassVar
 
 from md_studio.core import ir
@@ -121,8 +122,6 @@ class FixHeadings(MarkdownExtension):
         levels = report.levels
         ctx.notes.extend(note for note in report.notes if note not in ctx.notes)
         blocks = tuple(_promote(block, levels) for block in chapter.blocks)
-        promoted = ir.ChapterIR(
-            title=retitle(chapter, blocks), blocks=blocks, footnotes=chapter.footnotes
-        )
+        promoted = replace(chapter, title=retitle(chapter, blocks), blocks=blocks)
         _log_promotions(chapter.blocks, promoted, ctx.audit)
         return promoted

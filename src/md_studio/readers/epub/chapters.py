@@ -48,14 +48,10 @@ def _content_element(doc: html.HtmlElement) -> html.HtmlElement:  # type: ignore
     return body[0] if body else doc
 
 
-def _fallback_title(element: html.HtmlElement, href: str) -> str:  # type: ignore[no-any-unimported]
-    """Derive a title from the first heading, else the file stem."""
+def _heading_title(element: html.HtmlElement) -> str:  # type: ignore[no-any-unimported]
+    """Return the text of the first ``<h1>``-``<h3>``, or ``""`` when there is none."""
     headings = element.xpath(".//h1 | .//h2 | .//h3")
-    if headings:
-        text = " ".join(headings[0].itertext()).strip()
-        if text:
-            return text
-    return Path(href).stem
+    return " ".join(headings[0].itertext()).strip() if headings else ""
 
 
 def _read_chapter(archive: zipfile.ZipFile, href: str, titles: dict[str, str]) -> SourceChapter:
@@ -69,8 +65,10 @@ def _read_chapter(archive: zipfile.ZipFile, href: str, titles: dict[str, str]) -
     except (etree.ParserError, etree.XMLSyntaxError) as exc:
         raise ReadError(f"Cannot parse chapter HTML in {href}: {exc}") from exc
     element = _content_element(doc)
-    title = titles.get(href) or _fallback_title(element, href)
-    return SourceChapter(title=title, element=element)
+    title = titles.get(href) or _heading_title(element)
+    if title:
+        return SourceChapter(title=title, element=element)
+    return SourceChapter(title=Path(href).stem, element=element, title_is_fallback=True)
 
 
 def spine_chapters(  # type: ignore[no-any-unimported]
