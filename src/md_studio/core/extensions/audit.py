@@ -33,7 +33,8 @@ class PromotionRecord:
 
 def _visible(text: str) -> str:
     """Return *text* without control or format characters, backticks, or extra whitespace."""
-    kept = "".join(char for char in text if _category(char) not in _INVISIBLE)
+    spaced = "".join(" " if char.isspace() else char for char in text)
+    kept = "".join(char for char in spaced if _category(char) not in _INVISIBLE)
     return " ".join(kept.replace("`", "").split())
 
 

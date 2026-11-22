@@ -10,32 +10,19 @@ whether it styles a heading. Sheets are scanned independently, so a broken sheet
 swallow the next one.
 """
 
-import re
 from functools import lru_cache
 from types import MappingProxyType
 from typing import NamedTuple
 
 from md_studio.core.extensions import css_classes
+from md_studio.core.extensions.css_size import size_in_rem
 
-_MAX_VALUE_CHARS = 32
 _MAX_REM = 1000.0
 _MAX_LEVEL = 6
 _MIN_HEADING_REM = 1.3
 _MIN_BOLD_HEADING_REM = 1.1
 _SAME_LEVEL_REM = 0.1
-_PX_PER_REM = 16
-_PT_PER_REM = 12
-_PERCENT = 100
-_UNITS_PER_REM = MappingProxyType({
-    "rem": 1,
-    "em": 1,
-    "px": _PX_PER_REM,
-    "pt": _PT_PER_REM,
-    "%": _PERCENT,
-})
-_PRECISION = 9
 _BOLD_WEIGHTS = frozenset(("bold", "semibold", "600", "700", "800", "900"))
-_SIZE = re.compile(r"(\d+(?:\.\d+)?|\.\d+)(rem|em|px|pt|%)")
 
 
 class _Candidate(NamedTuple):
@@ -53,21 +40,10 @@ class ClassifyReport(NamedTuple):
     notes: tuple[str, ...]
 
 
-def _size_in_rem(raw: str) -> float | None:
-    """Return a CSS font size in rem, or ``None`` when it is not a plain length."""
-    if len(raw) > _MAX_VALUE_CHARS:
-        return None
-    match = _SIZE.fullmatch(raw)
-    if match is None:
-        return None
-    number, unit = match.groups()
-    return round(float(number) / _UNITS_PER_REM[unit], _PRECISION)
-
-
 def _candidate(declared: tuple[str, dict[str, str]]) -> _Candidate | None:
     """Return the heading candidate for a ``(class name, merged declarations)`` pair, if any."""
     name, props = declared
-    size = _size_in_rem(props.get("font-size", ""))
+    size = size_in_rem(props.get("font-size", ""))
     if size is None or size > _MAX_REM:
         return None
     bold = props.get("font-weight", "") in _BOLD_WEIGHTS

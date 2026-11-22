@@ -5,15 +5,25 @@ winning, so the caller can decide once per class whether it styles a heading.
 """
 
 import re
+from collections.abc import Iterator
+from itertools import islice
 
 from md_studio.core.document import STYLESHEET_SEPARATOR
 from md_studio.core.extensions import css_scan
+from md_studio.core.extensions.css_declarations import (
+    Declared,
+    Merged,
+    declaration_list,
+    override,
+)
+from md_studio.core.extensions.css_size import size_in_rem
 
 MAX_STYLESHEET_CHARS = 1_048_576
 _MAX_RULES = 20_000
 _MAX_CLASSES = 20_000
 _MAX_SELECTORS_PER_RULE = 64
-_RELEVANT = ("font-size", "font-weight", "text-transform")
+_FONT_SIZE = "font-size"
+_RELEVANT = (_FONT_SIZE, "font-weight", "text-transform")
 _CLASS_SELECTOR = re.compile(r"\.(-?[A-Za-z_][\w-]*)")
 
 Declarations = dict[str, str]
@@ -26,17 +36,57 @@ def _class_names(selector: str) -> list[str]:
     return [match.group(1) for match in matches if match is not None]
 
 
-def _merge(found: dict[str, Declarations], selector: str, body: str) -> None:
-    """Merge the relevant declarations of *body* into each class of *selector* (later wins)."""
-    declared = css_scan.declarations(body)
-    relevant = {key: declared[key] for key in _RELEVANT if key in declared}
+def _usable(name: str, declared: Declared) -> bool:
+    """Return whether a declaration matters; a font size that is not a plain length is dropped."""
+    if name == _FONT_SIZE:
+        return size_in_rem(declared.text) is not None
+    return name in _RELEVANT
+
+
+def _relevant(body: str) -> dict[str, Declared]:
+    """Return the winning relevant declarations of *body*, ignoring unparseable ones."""
+    kept: dict[str, Declared] = {}
+    for name, declared in declaration_list(body):
+        if _usable(name, declared):
+            override(kept, name, declared)
+    return kept
+
+
+def _merge(found: Merged, selector: str, body: str) -> None:
+    """Merge the relevant declarations of *body* into each class of *selector* (cascade)."""
+    relevant = _relevant(body)
     for name in _class_names(selector):
         if name in found or len(found) < _MAX_CLASSES:
-            found.setdefault(name, {}).update(relevant)
+            merged = found.setdefault(name, {})
+            for key, declared in relevant.items():
+                override(merged, key, declared)
+
+
+def _rules(stylesheet: str, notes: list[str], dropped: list[int]) -> Iterator[css_scan.Rule]:
+    """Yield the rules of every non-empty sheet in turn."""
+    for sheet in filter(None, stylesheet.split(STYLESHEET_SEPARATOR)):
+        yield from css_scan.rules(sheet, notes, dropped)
+
+
+def _scan(stylesheet: str, notes: list[str]) -> Merged:
+    """Merge declarations per class over the first rules of all sheets; note oversize ones once."""
+    found: Merged = {}
+    dropped: list[int] = []
+    rules = _rules(stylesheet, notes, dropped)
+    for selector, body in islice(rules, _MAX_RULES):
+        _merge(found, selector, body)
+    if next(rules, None) is not None:
+        notes.append(f"more than {_MAX_RULES} rules; the rest were ignored")
+    if sum(dropped):
+        notes.append(f"{sum(dropped)} oversize rule(s) were ignored")
+    return found
 
 
 def collect(stylesheet: str, notes: list[str]) -> dict[str, Declarations]:
     """Scan every sheet of *stylesheet* and return merged declarations by class name.
+
+    Declarations cascade: later ones win, an ``!important`` one is only replaced by another,
+    and font sizes that are not plain lengths are ignored.
 
     Parameters
     ----------
@@ -46,15 +96,10 @@ def collect(stylesheet: str, notes: list[str]) -> dict[str, Declarations]:
     notes:
         Receives a description of anything that was cut off or could not be read.
     """
-    found: dict[str, Declarations] = {}
-    scanned = 0
     if len(stylesheet) > MAX_STYLESHEET_CHARS:
         notes.append("stylesheet is larger than 1 MiB; the rest was ignored")
-    for sheet in stylesheet[:MAX_STYLESHEET_CHARS].split(STYLESHEET_SEPARATOR):
-        for selector, body in css_scan.rules(sheet, notes):
-            if scanned >= _MAX_RULES:
-                notes.append(f"more than {_MAX_RULES} rules; the rest were ignored")
-                return found
-            scanned += 1
-            _merge(found, selector, body)
-    return found
+    merged = _scan(stylesheet[:MAX_STYLESHEET_CHARS], notes)
+    return {
+        name: {key: declared.text for key, declared in props.items()}
+        for name, props in merged.items()
+    }

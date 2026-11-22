@@ -18,6 +18,8 @@ _MAX_BODY_CHARS = 2_048
 _STRUCTURE = re.compile(r"[{};}]")
 
 Rule = tuple[str, str]
+Notes = list[str] | None
+Counts = list[int] | None
 
 
 @dataclass(slots=True)
@@ -69,18 +71,16 @@ class _Walk:
 
 
 def _notes(walk: _Walk, *, cut_by_comment: bool) -> list[str]:
-    """Describe what the scan could not read."""
+    """Describe the unclosed constructs the scan ended inside."""
     notes = []
     if cut_by_comment:
         notes.append("stylesheet ends inside an unclosed comment; the rest was ignored")
     if walk.depth > 0:
         notes.append("stylesheet ends inside an unclosed block; that rule was ignored")
-    if walk.dropped:
-        notes.append(f"{walk.dropped} oversize rule(s) were ignored")
     return notes
 
 
-def rules(css: str, notes: list[str] | None = None) -> Iterator[Rule]:
+def rules(css: str, notes: Notes = None, dropped: Counts = None) -> Iterator[Rule]:
     """Yield ``(selector, body)`` for each top-level qualified rule, in linear time.
 
     Parameters
@@ -89,8 +89,10 @@ def rules(css: str, notes: list[str] | None = None) -> Iterator[Rule]:
         Stylesheet text. Preludes over 4,096 characters, selectors over 1,024 and bodies
         over 2,048 are skipped.
     notes:
-        When given, receives a description of anything unreadable once the iterator is
-        exhausted (unclosed comment or block, oversize rules).
+        When given, receives a description of an unclosed comment or block once the
+        iterator is exhausted.
+    dropped:
+        When given, receives the number of oversize rules skipped, once exhausted.
     """
     text, cut_by_comment = blank_noise(css)
     walk = _Walk()
@@ -100,21 +102,5 @@ def rules(css: str, notes: list[str] | None = None) -> Iterator[Rule]:
             yield rule
     if notes is not None:
         notes.extend(_notes(walk, cut_by_comment=cut_by_comment))
-
-
-def _clean(raw: str) -> str:
-    """Return a declaration value lowercased, without ``!important`` or anything after ``!``."""
-    return raw.split("!", 1)[0].strip().lower()
-
-
-def declarations(body: str) -> dict[str, str]:
-    """Return the last value of each declaration in *body*, names and values lowercased.
-
-    ``!important`` and anything after it is dropped from the value.
-    """
-    found: dict[str, str] = {}
-    for declaration in body.split(";"):
-        name, colon, raw = declaration.partition(":")
-        if colon:
-            found[name.strip().lower()] = _clean(raw)
-    return found
+    if dropped is not None:
+        dropped.append(walk.dropped)

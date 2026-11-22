@@ -1,5 +1,6 @@
 """CSS fidelity of the classifier: selector lists, cascade, sheets, units, multi-class."""
 
+import time
 from pathlib import Path
 
 import pytest
@@ -104,3 +105,47 @@ def test_media_only_heading_class_stays_a_paragraph(tmp_path: Path) -> None:
 
     assert rendered.promotions == ()
     assert "\nPart One\n" in rendered.text
+
+
+_FAST_SECONDS = 0.3
+
+
+@pytest.mark.parametrize(
+    ("stylesheet", "expected"),
+    [
+        (".a{font-size:2rem;font-size:calc(2rem)}", {"a": 1}),
+        (".a{font-size:2rem;font-size:clamp(1rem,2vw,3rem)}", {"a": 1}),
+        (".a{font-size:2rem}.a{font-size:var(--x)}", {"a": 1}),
+        (".a{font-size:2rem}.a{font-size:inherit}", {"a": 1}),
+        (".a{font-size:calc(2rem)}", {}),
+        (".a{font-size:2rem!important}.a{font-size:1rem}", {"a": 1}),
+        (".a{font-size:2rem !important;font-size:1rem}", {"a": 1}),
+        (".a{font-size:1rem!important}.a{font-size:2rem!important}", {"a": 1}),
+        (".a{font-size:2rem}.a{font-size:1rem!important}", {}),
+        (".a{font-size:1.2rem!important}.a{font-weight:bold}.a{font-weight:normal!important}", {}),
+    ],
+)
+def test_cascade_ignores_unparseable_sizes_and_honors_important(
+    stylesheet: str, expected: dict[str, int]
+) -> None:
+    assert css_headings.classify(stylesheet) == expected
+
+
+def test_bare_separators_are_skipped_quickly() -> None:
+    started = time.perf_counter()
+
+    levels = css_headings.classify(STYLESHEET_SEPARATOR * 1_048_576)
+
+    assert levels == {}
+    assert time.perf_counter() - started < _FAST_SECONDS
+
+
+def test_oversize_rules_across_sheets_produce_one_note() -> None:
+    body = "color:red;" * 210
+    sheets = ["".join(f".big{{{body}}}" for _ in range(count + 1)) for count in range(20)]
+    expected_total = sum(range(1, 21))
+
+    report = css_headings.classify_report(STYLESHEET_SEPARATOR.join(sheets))
+
+    oversize = [note for note in report.notes if "oversize" in note]
+    assert oversize == [f"{expected_total} oversize rule(s) were ignored"]
