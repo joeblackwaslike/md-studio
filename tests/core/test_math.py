@@ -155,3 +155,14 @@ def test_math_in_heading() -> None:
 def test_math_in_list_item() -> None:
     entry = ir.ListItem((ir.Paragraph((ir.Math("x"),)),))
     assert render_block_string(ir.ListBlock(ordered=False, items=(entry,))) == "- $x$"
+
+
+def test_chapter_title_dollars_escaped_only_with_has_math() -> None:
+    chapter = ir.ChapterIR("Costs $5 and $6", ())
+    assert r"## Costs \$5 and \$6" in _body(chapter, has_math=True)
+    assert "## Costs $5 and $6" in _body(chapter, has_math=False)
+
+
+def test_chapter_title_other_characters_untouched_with_has_math() -> None:
+    chapter = ir.ChapterIR("a_b *c* `d` e", ())
+    assert _body(chapter, has_math=True) == _body(chapter, has_math=False)

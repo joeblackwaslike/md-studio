@@ -10,7 +10,7 @@ size is added later (see ``frontmatter``).
 from md_studio.core import ir
 from md_studio.core.headings import normalize_ws, text_of_inlines, titles_match
 from md_studio.core.render.blocks import render_block_string
-from md_studio.core.render.escaping import dollar_escaping
+from md_studio.core.render.escaping import dollar_escaping, escape_dollars
 from md_studio.core.render.offsets import ChapterOffset, RenderResult
 
 _BLANK_LINE_NEWLINES = 2
@@ -81,7 +81,7 @@ class Renderer:
         self._buffer.ensure_blank_line()
         start = ChapterOffset(byte=self._buffer.byte, line=self._buffer.line)
         self._offsets.append(start)
-        self._buffer.write(f"## {normalize_ws(title)}\n")
+        self._buffer.write(f"## {escape_dollars(normalize_ws(title))}\n")
 
     def _render_body(self, chapter: ir.ChapterIR) -> None:
         """Render a chapter's blocks (skipping a redundant title heading) + notes."""

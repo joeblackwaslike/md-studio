@@ -119,12 +119,12 @@ def test_transport_failure_becomes_read_error() -> None:
 
 
 def test_redirect_loop_becomes_read_error() -> None:
-    with pytest.raises(ReadError, match="TooManyRedirects"):
+    with pytest.raises(ReadError, match="Too many redirects"):
         read_html("https://example.com/a", transport=httpx.MockTransport(_loop))
 
 
 def test_redirect_to_other_scheme_becomes_read_error() -> None:
-    with pytest.raises(ReadError, match="Could not fetch"):
+    with pytest.raises(ReadError, match="Unsupported redirect"):
         read_html("https://example.com/a", transport=httpx.MockTransport(_hop))
 
 
@@ -210,7 +210,7 @@ def test_three_redirect_hops_succeed() -> None:
 
 
 def test_four_redirect_hops_rejected() -> None:
-    with pytest.raises(ReadError, match="TooManyRedirects"):
+    with pytest.raises(ReadError, match="Too many redirects"):
         read_html("https://example.com/0", transport=_chain(4))
 
 
@@ -245,7 +245,7 @@ def test_gzip_bomb_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_slow_drip_of_tiny_pieces_hits_total_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     ticks = itertools.count(step=10)
-    monkeypatch.setattr("md_studio.readers.source._clock", lambda: float(next(ticks)))
+    monkeypatch.setattr("md_studio.readers.deadline._clock", lambda: float(next(ticks)))
     transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=_Drip()))
 
     with pytest.raises(ReadError, match="deadline"):
@@ -439,3 +439,106 @@ def test_resolve_is_called_once_and_only_on_first_match() -> None:
     resolve_extractor("https://a/x", [skipped, first, second])
 
     assert (skipped.resolved, first.resolved, second.resolved) == (0, 1, 0)
+
+
+def _redirect_with_untouchable_body(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/start":
+        return httpx.Response(
+            302,
+            headers={"location": "/final", "content-length": "1000"},
+            stream=_Untouchable(),
+        )
+    return httpx.Response(200, content=PAGE.encode())
+
+
+def test_redirect_body_is_never_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    _small_cap(monkeypatch)
+    transport = httpx.MockTransport(_redirect_with_untouchable_body)
+
+    document = read_html("https://example.com/start", transport=transport)
+
+    assert document.metadata.title == "Hello"
+
+
+class _Relative:
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.seen.append(str(request.url))
+        if request.url.path == "/docs/a":
+            return httpx.Response(302, headers={"location": "../b/c.html?x=1"})
+        return httpx.Response(200, content=PAGE.encode())
+
+
+def test_relative_location_resolves_against_current_url() -> None:
+    relative = _Relative()
+
+    read_html("https://example.com/docs/a", transport=httpx.MockTransport(relative))
+
+    assert relative.seen == ["https://example.com/docs/a", "https://example.com/b/c.html?x=1"]
+
+
+def _to_credentialed_ftp(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(302, headers={"location": "ftp://u:secret@example.com/a?k=v"})
+
+
+def test_redirect_error_does_not_leak_target_credentials() -> None:
+    with pytest.raises(ReadError) as caught:
+        read_html("https://example.com/a", transport=httpx.MockTransport(_to_credentialed_ftp))
+
+    assert "secret" not in str(caught.value)
+    assert "k=v" not in str(caught.value)
+
+
+class _Budget:
+    def __init__(self, advance_first_hop: float) -> None:
+        self.now = 0
+        self.timeouts: list[float] = []
+        self._advance = advance_first_hop
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.timeouts.append(request.extensions["timeout"]["read"])
+        if request.url.path == "/0":
+            self.now += self._advance
+            return httpx.Response(302, headers={"location": "/1"})
+        return httpx.Response(200, content=PAGE.encode())
+
+    def clock(self) -> float:
+        return float(self.now)
+
+
+class _LateFinal:
+    def __init__(self, budget: _Budget) -> None:
+        self._budget = budget
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self._budget.now += 31
+        return httpx.Response(200, content=PAGE.encode())
+
+
+def test_each_hop_gets_only_the_remaining_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _Budget(20)
+    monkeypatch.setattr("md_studio.readers.deadline._clock", budget.clock)
+
+    read_html("https://example.com/0", transport=httpx.MockTransport(budget))
+
+    assert budget.timeouts == [30.0, 10.0]
+
+
+def test_expired_budget_before_next_hop_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _Budget(31)
+    monkeypatch.setattr("md_studio.readers.deadline._clock", budget.clock)
+
+    with pytest.raises(ReadError, match="deadline"):
+        read_html("https://example.com/0", transport=httpx.MockTransport(budget))
+
+    assert budget.timeouts == [30.0]
+
+
+def test_deadline_passed_when_headers_arrive_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = _Budget(0)
+    monkeypatch.setattr("md_studio.readers.deadline._clock", budget.clock)
+
+    with pytest.raises(ReadError, match="deadline"):
+        read_html("https://example.com/1", transport=httpx.MockTransport(_LateFinal(budget)))

@@ -22,6 +22,13 @@ def dollar_escaping(*, enabled: bool) -> Iterator[None]:
         _ESCAPE_DOLLARS.reset(token)
 
 
+def escape_dollars(text: str) -> str:
+    """Escape ``$`` only, and only while dollar escaping is enabled."""
+    if _ESCAPE_DOLLARS.get():
+        return text.replace(_DOLLAR, r"\$")
+    return text
+
+
 def escape_text(text: str) -> str:
     """Escape the few characters that would otherwise break inline Markdown.
 

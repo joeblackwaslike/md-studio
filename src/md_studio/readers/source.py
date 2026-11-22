@@ -1,21 +1,18 @@
 """Size- and time-capped loading of an HTML source from a URL or local file."""
 
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 
 from md_studio.core.exceptions import ReadError
+from md_studio.readers.deadline import Deadline
+from md_studio.readers.redirects import open_final
 from md_studio.readers.urls import display_url, url_scheme
 
 MAX_BYTES = 52_428_800
-TIMEOUT_SECONDS = 30.0
-DEADLINE_SECONDS = 30.0
-MAX_REDIRECTS = 3
 _SCHEMES = ("http", "https")
 _TOO_BIG = "HTML source exceeds the size cap"
-_clock = time.monotonic
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +24,7 @@ class LoadedSource:
     charset: str | None = None
 
 
-def _drain(response: httpx.Response, name: str, deadline: float) -> bytes:
+def _drain(response: httpx.Response, deadline: Deadline) -> bytes:
     """Read the decoded body of *response*, enforcing the size cap and total deadline."""
     declared = response.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > MAX_BYTES:
@@ -37,18 +34,8 @@ def _drain(response: httpx.Response, name: str, deadline: float) -> bytes:
         payload.extend(piece)
         if len(payload) > MAX_BYTES:
             raise ReadError(_TOO_BIG)
-        if _clock() > deadline:
-            raise ReadError(f"Fetching {name} exceeded the total deadline")
+        deadline.check()
     return bytes(payload)
-
-
-def _client(transport: httpx.BaseTransport | None) -> httpx.Client:
-    return httpx.Client(
-        timeout=TIMEOUT_SECONDS,
-        follow_redirects=True,
-        max_redirects=MAX_REDIRECTS,
-        transport=transport,
-    )
 
 
 def _failure(name: str, exc: httpx.HTTPError | httpx.InvalidURL) -> ReadError:
@@ -59,13 +46,14 @@ def _failure(name: str, exc: httpx.HTTPError | httpx.InvalidURL) -> ReadError:
 
 
 def _fetch(url: str, transport: httpx.BaseTransport | None) -> LoadedSource:
-    """Stream *url* into memory, enforcing the size cap on bytes actually read."""
+    """Stream *url* into memory, enforcing the size cap and total deadline."""
     name = display_url(url)
-    deadline = _clock() + DEADLINE_SECONDS
+    deadline = Deadline()
     try:
-        with _client(transport) as client, client.stream("GET", url) as response:
+        with open_final(url, transport, deadline) as response:
             response.raise_for_status()
-            return LoadedSource(_drain(response, name, deadline), name, response.charset_encoding)
+            raw = _drain(response, deadline)
+            return LoadedSource(raw, name, response.charset_encoding)
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         raise _failure(name, exc) from exc
 
