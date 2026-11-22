@@ -10,6 +10,7 @@ from md_studio.core import ir
 from md_studio.core.convert import convert
 from md_studio.core.document import Document, DocumentMetadata, SourceChapter
 from md_studio.core.render import Renderer
+from md_studio.core.urls import encode_destination
 
 
 def _body(*nodes: ir.Inline, embed: bool) -> str:
@@ -108,3 +109,48 @@ def test_unicode_whitespace_in_a_source_is_encoded_as_utf8_bytes(char: str) -> N
 
     assert unquote(destination) == f"https://a.org/a{char}b.png"
     assert char not in destination
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "data&colon;image/png;base64,AAAA",
+        "file&#58;///etc/passwd",
+        "javascript&#x3a;alert(1)",
+        "JAVASCRIPT&#X3A;alert(1)",
+        "file&#0000058;///x",
+    ],
+)
+def test_character_reference_schemes_are_not_embedded(src: str) -> None:
+    assert _body(_image(src), embed=True) == "## C\n\nA diagram\n"
+
+
+@pytest.mark.parametrize(
+    ("src", "expected"),
+    [
+        ("a&colon;b", r"a\&colon;b"),
+        ("a&#58;b", r"a\&#58;b"),
+        ("a&#x3A;b", r"a\&#x3A;b"),
+        ("a&amp;b", r"a\&amp;b"),
+        ("a&lt;&gt;", r"a\&lt;\&gt;"),
+        ("x.png?a=1&b=2", "x.png?a=1&b=2"),
+        ("x.png?a=1&b=2&c", "x.png?a=1&b=2&c"),
+        ("x.png?a&b;", r"x.png?a\&b;"),
+        ("x.png?a=1&&", "x.png?a=1&&"),
+        ("x.png?a=1&#;", "x.png?a=1&#;"),
+    ],
+)
+def test_destinations_escape_only_character_references(src: str, expected: str) -> None:
+    assert encode_destination(src) == expected
+
+
+def test_literal_amp_text_stays_literal_text_in_an_embedded_source() -> None:
+    body = _body(_image("https://a.org/x.png?a=1&amp;b=2"), embed=True)
+
+    assert body == "## C\n\n![A diagram](https://a.org/x.png?a=1\x5c&amp;b=2)\n"
+
+
+def test_plain_ampersand_query_is_untouched_when_embedded() -> None:
+    body = _body(_image("https://a.org/x.png?a=1&b=2"), embed=True)
+
+    assert body == "## C\n\n![A diagram](https://a.org/x.png?a=1&b=2)\n"

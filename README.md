@@ -35,8 +35,7 @@ Extensions come in two kinds that share one name list. A Markdown extension subc
 
 - `--arxiv-id ID` treats the source as that paper and ignores the source argument. It takes an id or an arXiv URL.
 - A path that exists on disk is never taken for an arXiv id.
-- The HTML route splits the paper into one chapter per chapter, appendix and the bibliography, with part names in the titles. Math comes from the original TeX (`$...$` and `$$...$$`), figures are embedded as `![caption](absolute url)`, and listings become fenced code with their language. This runs the `arxiv-latexml` source fix, which the extractor enables on its own, so you do not pass `--ext` for it.
-- A paper without chapters (an article) is split at its top-level sections instead, with the same rules for math, listings, footnotes, images and links. A page with neither chapters nor sections is left as it is, with a warning.
+- The paper's cleanup step is the `arxiv-latexml` source fix, which is not installed yet. Until it is, `convert` stops with an unknown-extension error naming `arxiv-latexml`, before any request is made, and writes nothing.
 - If arXiv has no HTML version the command fails with a clear error. The PDF fallback is not built yet.
 
 arXiv's access rules are built in. Only `/html/`, `/abs/` and `/pdf/` are fetched, never `/e-print` or `/src`. Requests within one run are spaced at least 15 seconds apart, redirect hops included, and carry a descriptive User-Agent. The spacing is kept per process, so it does not span separate `md-studio` invocations; do not script several runs back to back. Convert one paper at a time; there is no bulk mode.

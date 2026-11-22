@@ -1,5 +1,6 @@
 """Tests for arXiv id parsing, the polite client, and the extractor."""
 
+import threading
 from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError
 
@@ -485,3 +486,58 @@ def test_a_malformed_url_is_a_read_error() -> None:
 
     with pytest.raises(ReadError):
         _client(time, _Server(time)).read("https://[x/html/1")
+
+
+class _Gated:
+    def __init__(self) -> None:
+        self.time = _Time()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.guard = threading.Lock()
+        self.inflight = 0
+        self.peak = 0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        with self.guard:
+            first = not self.entered.is_set()
+            self.inflight += 1
+            self.peak = max(self.peak, self.inflight)
+        if first:
+            self.entered.set()
+            self.release.wait(5)
+        self.time.now += 25
+        with self.guard:
+            self.inflight -= 1
+        return _page()
+
+
+def _gated_client(gated: _Gated) -> ArxivClient:
+    return ArxivClient(
+        0, transport=httpx.MockTransport(gated), clock=gated.time.clock, sleep=gated.time.sleep
+    )
+
+
+def _read_title(client: ArxivClient, url: str, titles: list[str]) -> None:
+    titles.append(client.read(url).metadata.title)
+
+
+def test_reads_are_serialized_and_queueing_never_counts_against_a_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gated = _Gated()
+    monkeypatch.setattr("md_studio.readers.deadline._clock", gated.time.clock)
+    client = _gated_client(gated)
+    titles: list[str] = []
+    first = threading.Thread(target=_read_title, args=(client, "https://arxiv.org/html/1", titles))
+    second = threading.Thread(target=_read_title, args=(client, "https://arxiv.org/html/2", titles))
+
+    first.start()
+    assert gated.entered.wait(5)
+    second.start()
+    threading.Event().wait(0.05)
+    gated.release.set()
+    first.join(5)
+    second.join(5)
+
+    assert titles == ["Paper", "Paper"]
+    assert gated.peak == 1

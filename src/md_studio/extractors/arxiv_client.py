@@ -77,9 +77,11 @@ class _PoliteTransport(httpx.BaseTransport):
 class ArxivClient:
     """Fetches arXiv pages while honouring arXiv's access rules.
 
-    Spacing is kept per client instance (so per process when one client is shared), measured
-    from one request start to the next, and the wait is thread-safe within one client only.
-    The wait does not count against a fetch's total deadline.
+    One read at a time: reads are serialized by a client-level lock taken before the fetch's
+    deadline starts and held until the read finishes, so queueing never counts against a
+    deadline and no two fetches share the transport. Spacing is kept per client instance (so
+    per process when one client is shared), measured from one request start to the next.
+    The wait between requests does not count against a fetch's total deadline.
 
     Parameters
     ----------
@@ -100,6 +102,7 @@ class ArxivClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.min_interval = min_interval
+        self._reading = threading.Lock()
         self.transport: httpx.BaseTransport = _PoliteTransport(
             min_interval, transport, clock, sleep
         )
@@ -111,12 +114,18 @@ class ArxivClient:
     def read(self, source: str, /) -> Document:
         """Read the arXiv HTML page at *source* into a :class:`Document`.
 
+        Reads are serialized: a second caller blocks until the first read has finished.
+
         Raises
         ------
         ReadError
             When the page does not exist, a hop leaves the allowed paths, or the fetch fails.
         """
         self._check(source)
+        with self._reading:
+            return self._fetch(source)
+
+    def _fetch(self, source: str) -> Document:
         try:
             return read_html(source, transport=self.transport)
         except ForbiddenUrlError as error:

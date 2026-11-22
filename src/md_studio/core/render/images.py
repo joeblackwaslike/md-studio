@@ -1,5 +1,7 @@
 """Render image nodes: alt text, or an embed when the document asks for images."""
 
+from html import unescape
+
 from md_studio.core import ir
 from md_studio.core.render.escaping import escape_text
 from md_studio.core.render.options import embeds_images
@@ -13,12 +15,16 @@ def _bracket_text(text: str) -> str:
     return escaped.replace("[", r"\[").replace("]", r"\]")
 
 
-def _embeddable(src: str) -> bool:
+def _allowed_form(src: str) -> bool:
     parts = safe_urlsplit(src)
     if parts is None or not src:
         return False
     scheme = parts.scheme.lower()
     return scheme in _EMBEDDABLE_SCHEMES and (bool(scheme) or not parts.netloc)
+
+
+def _embeddable(src: str) -> bool:
+    return _allowed_form(src) and _allowed_form(unescape(src).strip())
 
 
 def render_image(node: ir.Image) -> str:

@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from typing import Protocol
 
 from md_studio.core.exceptions import ReadError
 
@@ -16,12 +17,26 @@ MESSAGE = "Fetch exceeded the total deadline"
 _active: ContextVar["Deadline | None"] = ContextVar("active_deadline", default=None)
 
 
+class _TimerLike(Protocol):
+    daemon: bool
+
+    def start(self) -> None: ...
+
+    def cancel(self) -> None: ...
+
+
+type TimerFactory = Callable[[float, Callable[[], None]], _TimerLike]
+
+
 class _Watchdog:
     """Calls a function when a deadline passes, re-arming itself if the deadline was extended."""
 
-    def __init__(self, deadline: "Deadline", close: Callable[[], None]) -> None:
+    def __init__(
+        self, deadline: "Deadline", close: Callable[[], None], timer_factory: TimerFactory
+    ) -> None:
         self._deadline = deadline
         self._close = close
+        self._timer_factory = timer_factory
         self._lock = threading.Lock()
         self._cancelled = False
         self._timer = self._arm()
@@ -32,8 +47,8 @@ class _Watchdog:
             self._cancelled = True
             self._timer.cancel()
 
-    def _arm(self) -> threading.Timer:
-        timer = threading.Timer(self._deadline.remaining(), self._fire)
+    def _arm(self) -> _TimerLike:
+        timer = self._timer_factory(self._deadline.remaining(), self._fire)
         timer.daemon = True
         timer.start()
         return timer
@@ -86,9 +101,15 @@ class Deadline:
         finally:
             _active.reset(token)
 
-    def watch(self, close: Callable[[], None]) -> _Watchdog:
-        """Start a daemon watchdog that flags expiry and calls *close* when time runs out."""
-        return _Watchdog(self, close)
+    def watch(
+        self, close: Callable[[], None], *, timer_factory: TimerFactory = threading.Timer
+    ) -> _Watchdog:
+        """Start a daemon watchdog that flags expiry and calls *close* when time runs out.
+
+        *timer_factory* builds the timers (``threading.Timer`` by default); tests inject a
+        controllable one.
+        """
+        return _Watchdog(self, close, timer_factory)
 
 
 def extend_active(seconds: float) -> None:
