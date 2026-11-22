@@ -1,0 +1,85 @@
+"""Tests for math IR nodes and their Markdown rendering."""
+
+from pathlib import Path
+
+from md_studio.core import ir
+from md_studio.core.convert import convert
+from md_studio.core.headings import text_of_inlines
+from md_studio.core.render import Renderer, render_inlines
+from md_studio.core.render.blocks import render_block_string
+from md_studio.readers.epub import read_epub
+from tests.readers._epub import ChapterSpec, build_epub
+
+
+def _body(*chapters: ir.ChapterIR, has_math: bool = False) -> str:
+    return Renderer(has_math=has_math).render(chapters).body
+
+
+def _para(*nodes: ir.Inline) -> ir.Paragraph:
+    return ir.Paragraph(nodes)
+
+
+def test_inline_math_renders_dollars() -> None:
+    assert render_inlines((ir.Math("x^2"),)) == "$x^2$"
+
+
+def test_block_math_renders_fenced_dollars() -> None:
+    assert render_block_string(ir.MathBlock("x + y")) == "$$\nx + y\n$$"
+
+
+def test_math_content_not_escaped() -> None:
+    rendered = render_inlines((ir.Math(r"a_b \\ `c`"),))
+    assert rendered == r"$a_b \\ `c`$"
+
+
+def test_inline_math_newlines_become_spaces() -> None:
+    assert render_inlines((ir.Math("a\nb\r\nc"),)) == "$a b  c$"
+
+
+def test_empty_inline_math_renders_nothing() -> None:
+    assert render_inlines((ir.Text("a"), ir.Math(""), ir.Math(" \n "), ir.Text("b"))) == "ab"
+
+
+def test_empty_block_math_renders_nothing() -> None:
+    assert render_block_string(ir.MathBlock("  \n")) == ""
+
+
+def test_dollar_in_prose_escaped_only_with_has_math() -> None:
+    chapter = ir.ChapterIR("C", (_para(ir.Text("costs $5"), ir.Math("x")),))
+    assert r"costs \$5$x$" in _body(chapter, has_math=True)
+    assert "costs $5$x$" in _body(chapter, has_math=False)
+
+
+def test_dollar_escaping_does_not_leak_between_renders() -> None:
+    chapter = ir.ChapterIR("C", (_para(ir.Text("$5")),))
+    _body(chapter, has_math=True)
+    assert "$5" in _body(chapter)
+    assert r"\$5" not in _body(chapter)
+
+
+def test_dollar_in_code_span_never_escaped() -> None:
+    chapter = ir.ChapterIR("C", (_para(ir.CodeSpan("$HOME")),))
+    assert "`$HOME`" in _body(chapter, has_math=True)
+
+
+def test_math_block_keeps_blank_line_separation_and_offsets() -> None:
+    chapters = (
+        ir.ChapterIR("One", (_para(ir.Text("a")), ir.MathBlock("x"), _para(ir.Text("b")))),
+        ir.ChapterIR("Two", (ir.MathBlock("y"),)),
+    )
+    rendered = Renderer().render(chapters)
+    body = rendered.body
+
+    assert body == "## One\n\na\n\n$$\nx\n$$\n\nb\n\n## Two\n\n$$\ny\n$$\n"
+    for offset, title in zip(rendered.offsets, ("One", "Two"), strict=True):
+        assert body.encode()[offset.byte :].decode().startswith(f"## {title}")
+        assert body.split("\n")[offset.line - 1] == f"## {title}"
+
+
+def test_epub_output_unchanged_without_math(tmp_path: Path) -> None:
+    path = build_epub(tmp_path / "d.epub", "D", [ChapterSpec("C", "<p>cost $5 and $6</p>")])
+    assert "cost $5 and $6" in convert(read_epub(path)).body
+
+
+def test_math_contributes_its_tex_to_plain_text() -> None:
+    assert text_of_inlines((ir.Text("a "), ir.Math("x^2"))) == "a x^2"

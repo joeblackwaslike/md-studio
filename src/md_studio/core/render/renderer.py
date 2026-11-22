@@ -10,6 +10,7 @@ size is added later (see ``frontmatter``).
 from md_studio.core import ir
 from md_studio.core.headings import normalize_ws, text_of_inlines, titles_match
 from md_studio.core.render.blocks import render_block_string
+from md_studio.core.render.escaping import dollar_escaping
 from md_studio.core.render.offsets import ChapterOffset, RenderResult
 
 _BLANK_LINE_NEWLINES = 2
@@ -61,16 +62,18 @@ class _Buffer:
 class Renderer:
     """Accumulates the Markdown body and records per-chapter start offsets."""
 
-    def __init__(self) -> None:
-        """Initialise an empty buffer with no recorded offsets."""
+    def __init__(self, *, has_math: bool = False) -> None:
+        """Initialise an empty buffer; *has_math* makes prose ``$`` render escaped."""
+        self._has_math = has_math
         self._buffer = _Buffer()
         self._offsets: list[ChapterOffset] = []
 
     def render(self, chapters: tuple[ir.ChapterIR, ...]) -> RenderResult:
         """Render all *chapters* and return the body plus start offsets."""
-        for chapter in chapters:
-            self._start_chapter(chapter.title)
-            self._render_body(chapter)
+        with dollar_escaping(enabled=self._has_math):
+            for chapter in chapters:
+                self._start_chapter(chapter.title)
+                self._render_body(chapter)
         return RenderResult(body=self._buffer.text(), offsets=list(self._offsets))
 
     def _start_chapter(self, title: str) -> None:

@@ -26,12 +26,12 @@ def _inline_text(node: ir.Inline) -> str:
     """Return the plain text of a single inline node."""
     if isinstance(node, (ir.Text, ir.CodeSpan)):
         return node.value
+    if isinstance(node, ir.Math):
+        return node.tex
     if isinstance(node, ir.Image):
         return node.alt
-    if isinstance(node, ir.LineBreak):
-        return " "
-    if isinstance(node, ir.FootnoteRef):
-        return ""
+    if isinstance(node, (ir.LineBreak, ir.FootnoteRef)):
+        return " " if isinstance(node, ir.LineBreak) else ""
     return text_of_inlines(node.children)
 
 

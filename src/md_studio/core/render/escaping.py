@@ -1,15 +1,45 @@
 """Markdown text escaping and backtick-fence escalation helpers."""
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 _BACKTICK_RUN_RE = re.compile(r"`+")
 _MIN_FENCE = 3
 _BACKTICK = "`"
+_DOLLAR = "$"
+_NEWLINE_RE = re.compile(r"[\r\n]")
+_ESCAPE_DOLLARS: ContextVar[bool] = ContextVar("escape_dollars", default=False)
+
+
+@contextmanager
+def dollar_escaping(*, enabled: bool) -> Iterator[None]:
+    """Escape ``$`` in prose for the duration of the block when *enabled*."""
+    token = _ESCAPE_DOLLARS.set(enabled)
+    try:
+        yield
+    finally:
+        _ESCAPE_DOLLARS.reset(token)
 
 
 def escape_text(text: str) -> str:
     """Escape the few characters that would otherwise break inline Markdown."""
-    return text.replace("\\", r"\\").replace(_BACKTICK, r"\`")
+    escaped = text.replace("\\", r"\\").replace(_BACKTICK, r"\`")
+    if _ESCAPE_DOLLARS.get():
+        return escaped.replace(_DOLLAR, r"\$")
+    return escaped
+
+
+def inline_math(tex: str) -> str:
+    """Render ``$tex$`` with line breaks flattened to spaces; blank *tex* renders nothing."""
+    flat = _NEWLINE_RE.sub(" ", tex)
+    return f"${flat}$" if flat.strip() else ""
+
+
+def block_math(tex: str) -> str:
+    """Render ``$$`` fenced display math; blank *tex* renders nothing."""
+    return f"$$\n{tex}\n$$" if tex.strip() else ""
 
 
 def _longest_backtick_run(text: str) -> int:

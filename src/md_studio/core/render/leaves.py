@@ -1,7 +1,7 @@
 """Renderers for leaf inline nodes (no inline children to recurse into)."""
 
 from md_studio.core import ir
-from md_studio.core.render.escaping import code_span, escape_text
+from md_studio.core.render.escaping import code_span, escape_text, inline_math
 
 
 def render_text(node: ir.Text) -> str:
@@ -12,6 +12,11 @@ def render_text(node: ir.Text) -> str:
 def render_code_span(node: ir.CodeSpan) -> str:
     """Render an inline code span."""
     return code_span(node.value)
+
+
+def render_math(node: ir.Math) -> str:
+    """Render inline math verbatim."""
+    return inline_math(node.tex)
 
 
 def render_image(node: ir.Image) -> str:

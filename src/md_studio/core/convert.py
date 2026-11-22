@@ -70,7 +70,12 @@ def convert(
     meta, chapters = assemble.assemble(document)
     chapters, ctx = _apply_extensions(meta, chapters, markdown_extensions, document.stylesheet)
     return _render(
-        meta, chapters, extra, tuple(ctx.audit), _notes(document, markdown_extensions, ctx)
+        meta,
+        chapters,
+        extra,
+        tuple(ctx.audit),
+        _notes(document, markdown_extensions, ctx),
+        has_math=document.has_math,
     )
 
 
@@ -81,15 +86,17 @@ def _notes(document: Document, extensions: list[MarkdownExtension], ctx: ExtCtx)
     return (*document.warnings, *ctx.notes)
 
 
-def _render(
+def _render(  # noqa: WPS211 -- one render step; each argument is a distinct pipeline output
     meta: ir.BookMeta,
     chapters: tuple[ir.ChapterIR, ...],
     extra: Mapping[str, str | list[str]] | None,
     promotions: tuple[PromotionRecord, ...],
     notes: tuple[str, ...],
+    *,
+    has_math: bool,
 ) -> RenderedMarkdown:
     """Render *chapters* and build the two-pass front matter around the body."""
-    rendered = Renderer().render(chapters)
+    rendered = Renderer(has_math=has_math).render(chapters)
     front_matter, ranges = frontmatter.build(
         meta,
         [chapter.title for chapter in chapters],
