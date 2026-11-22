@@ -57,6 +57,8 @@ class Findings:
     links: list[HtmlElement] = field(default_factory=list)
     dropped: list[HtmlElement] = field(default_factory=list)
     entry_depth: int = 0
+    section_heading: dict[HtmlElement, HtmlElement] = field(default_factory=dict)
+    authors: HtmlElement | None = None
     titlepage: HtmlElement | None = None
     document_title: HtmlElement | None = None
     subtitle: HtmlElement | None = None

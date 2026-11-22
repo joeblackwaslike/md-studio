@@ -70,6 +70,8 @@ def _convert_simple(child: html.HtmlElement, tag: str) -> list[ir.Inline]:  # ty
 
 def convert_inline_child(child: html.HtmlElement) -> list[ir.Inline]:  # type: ignore[no-any-unimported]
     """Convert a single inline child element into IR inline nodes."""
+    if not isinstance(child.tag, str):
+        return []
     tag = localname(child)
     formatting = _FORMATTING.get(tag)
     if formatting is not None:

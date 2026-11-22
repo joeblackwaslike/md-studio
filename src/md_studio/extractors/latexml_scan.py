@@ -100,5 +100,12 @@ def _front(found: Findings, element: HtmlElement, classes: frozenset[str]) -> No
         found.titlepage = element
     elif "ltx_title_document" in classes and found.document_title is None:
         found.document_title = element
-    elif "ltx_subtitle" in classes and found.subtitle is None:
+    else:
+        _byline(found, element, classes)
+
+
+def _byline(found: Findings, element: HtmlElement, classes: frozenset[str]) -> None:
+    if "ltx_subtitle" in classes and found.subtitle is None:
         found.subtitle = element
+    elif "ltx_authors" in classes and found.authors is None:
+        found.authors = element

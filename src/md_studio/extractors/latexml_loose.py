@@ -12,7 +12,13 @@ _TITLES = (
     ("ltx_keywords", "Keywords"),
     ("ltx_acknowledgements", "Acknowledgements"),
 )
-_NOT_CONTENT = frozenset(("ltx_titlepage", "ltx_pagination"))
+_NOT_CONTENT = frozenset((
+    "ltx_titlepage",
+    "ltx_pagination",
+    "ltx_title_document",
+    "ltx_subtitle",
+    "ltx_authors",
+))
 _NAVIGATION = frozenset(("ltx_TOC", "ltx_page_navbar"))
 _FRONT = "Front matter"
 _LATER = "Additional material"
@@ -41,9 +47,9 @@ def wrap_loose(root: HtmlElement, entry_classes: frozenset[str]) -> None:
         if _is_loose(child, entry_classes):
             run.append(child)
             continue
-        seen_entry = seen_entry or bool(entry_classes & set(classes_of(child)))
         _flush(run, seen_entry=seen_entry)
         run = []
+        seen_entry = seen_entry or bool(entry_classes & set(classes_of(child)))
     _flush(run, seen_entry=True)
 
 

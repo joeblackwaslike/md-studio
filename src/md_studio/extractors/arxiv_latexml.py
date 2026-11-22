@@ -11,7 +11,7 @@ from copy import deepcopy
 from dataclasses import replace
 from typing import ClassVar, cast
 
-from md_studio.core.document import Document, DocumentMetadata, SourceChapter
+from md_studio.core.document import Document, SourceChapter
 from md_studio.extractors.arxiv_id import parse_arxiv_id
 from md_studio.extractors.latexml_anchors import anchors
 from md_studio.extractors.latexml_blocks import rewrite_blocks
@@ -21,9 +21,9 @@ from md_studio.extractors.latexml_headings import set_entry_titles
 from md_studio.extractors.latexml_images import rewrite_images
 from md_studio.extractors.latexml_links import rewrite_links
 from md_studio.extractors.latexml_math import rewrite_math
+from md_studio.extractors.latexml_meta import rewrite_metadata
 from md_studio.extractors.latexml_notes import rewrite_footnotes
 from md_studio.extractors.latexml_scan import MAX_ELEMENTS, check_size, scan
-from md_studio.extractors.latexml_text import plain_text
 from md_studio.readers.html import HtmlElement
 
 NOT_LATEXML = "arxiv-latexml: no LaTeXML chapters found; the page was left as it is"
@@ -79,7 +79,7 @@ def _rewrite(document: Document, found: Findings) -> Document:
     images, links, has_equations = _rewrite_markup(found, paper)
     return replace(
         document,
-        metadata=replace(document.metadata, title=_title(document.metadata, found)),
+        metadata=rewrite_metadata(document.metadata, found),
         chapters=tuple(SourceChapter(entry.title, entry.element) for entry in found.entries),
         has_math=document.has_math or bool(found.maths) or has_equations,
         embed_images=True,
@@ -108,28 +108,3 @@ def _rewrite_markup(found: Findings, paper: str | None) -> tuple[int, int, bool]
     images = rewrite_images(found.images, paper)
     demote_headings(found.headings, found.entry_depth)
     return images, rewrite_links(found.links, targets, paper), has_equations
-
-
-def _title(metadata: DocumentMetadata, found: Findings) -> str:
-    """Rebuild the glued ``<title>`` as ``Title: Subtitle`` from the document's title elements."""
-    pair = _title_pair(found)
-    if pair is None or _squash(metadata.title) != "".join(pair):
-        return metadata.title
-    return ": ".join(pair)
-
-
-def _squash(text: str) -> str:
-    return " ".join(text.split())
-
-
-def _title_pair(found: Findings) -> tuple[str, str] | None:
-    if found.document_title is not None and found.subtitle is not None:
-        return plain_text(found.document_title), plain_text(found.subtitle)
-    if found.titlepage is None:
-        return None
-    texts = [plain_text(child) for child in found.titlepage if child.tag == "p"]
-    match texts[:2]:
-        case [first, second] if first and second:
-            return first, second
-        case _:
-            return None

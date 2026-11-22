@@ -57,5 +57,5 @@ def _target(section: Section | None, found: Findings) -> HtmlElement | None:
         return None
     if section.entry is not None:
         return None if section.entry.title_element in found.math_headings else section.element
-    own = next((child for child in section.element if child.tag in _HEADINGS), None)
+    own = found.section_heading.get(section.element)
     return None if own in found.math_headings else own
