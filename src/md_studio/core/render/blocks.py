@@ -11,8 +11,9 @@ from types import MappingProxyType
 from md_studio.core import ir
 from md_studio.core.headings import shift_level
 from md_studio.core.render import lists
-from md_studio.core.render.escaping import block_math, fence_for
+from md_studio.core.render.escaping import fence_for
 from md_studio.core.render.inlines import render_inlines
+from md_studio.core.render.math import block_math
 from md_studio.core.render.tables import render_table
 
 _QUOTE_PREFIX = "> "

@@ -1,7 +1,8 @@
 """Renderers for leaf inline nodes (no inline children to recurse into)."""
 
 from md_studio.core import ir
-from md_studio.core.render.escaping import code_span, escape_text, inline_math
+from md_studio.core.render.escaping import code_span, escape_text
+from md_studio.core.render.math import inline_math
 
 
 def render_text(node: ir.Text) -> str:

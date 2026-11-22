@@ -9,9 +9,6 @@ _BACKTICK_RUN_RE = re.compile(r"`+")
 _MIN_FENCE = 3
 _BACKTICK = "`"
 _DOLLAR = "$"
-_UNESCAPED_DOLLAR_RE = re.compile(r"(?<!\\)((?:\\\\)*)\$")
-_ESCAPED_DOLLAR = r"\1\$"
-_NEWLINE_RE = re.compile(r"[\r\n]")
 _ESCAPE_DOLLARS: ContextVar[bool] = ContextVar("escape_dollars", default=False)
 
 
@@ -34,26 +31,6 @@ def escape_text(text: str) -> str:
     if _ESCAPE_DOLLARS.get():
         return escaped.replace(_DOLLAR, r"\$")
     return escaped
-
-
-def inline_math(tex: str) -> str:
-    r"""Render ``$tex$``; blank *tex* renders nothing.
-
-    Line breaks become spaces, surrounding whitespace is stripped, and every unescaped
-    ``$`` becomes ``\\$`` (an already escaped ``\\$`` stays; ``\\\\$`` is a real dollar).
-    """
-    flat = _UNESCAPED_DOLLAR_RE.sub(_ESCAPED_DOLLAR, _NEWLINE_RE.sub(" ", tex).strip())
-    return f"${flat}$" if flat else ""
-
-
-def block_math(tex: str) -> str:
-    """Render ``$$`` fenced display math; blank *tex* renders nothing.
-
-    Surrounding whitespace is stripped and unescaped ``$`` is escaped as in
-    :func:`inline_math`, so no line of *tex* can close the block early.
-    """
-    body = _UNESCAPED_DOLLAR_RE.sub(_ESCAPED_DOLLAR, tex.strip())
-    return f"$$\n{body}\n$$" if body else ""
 
 
 def _longest_backtick_run(text: str) -> int:

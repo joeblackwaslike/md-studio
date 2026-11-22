@@ -127,3 +127,31 @@ def test_dollar_escaping_resets_after_a_failed_render() -> None:
         Renderer(has_math=True).render((broken,))
 
     assert r"\$" not in _body(ir.ChapterIR("C", (_para(ir.Text("$5")),)))
+
+
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_math_ending_in_backslashes_still_closes(count: int) -> None:
+    tail = "\\" * count
+    pad = " " if count % 2 else ""
+    assert render_inlines((ir.Math(f"x{tail}"),)) == f"$x{tail}{pad}$"
+    assert render_block_string(ir.MathBlock(f"x{tail}")) == f"$$\nx{tail}{pad}\n$$"
+
+
+def test_block_math_drops_blank_lines() -> None:
+    assert render_block_string(ir.MathBlock("a\n\n \nb")) == "$$\na\nb\n$$"
+
+
+def test_math_in_table_cell_escapes_pipe() -> None:
+    cell = (ir.TableCell((ir.Math("a|b"),)),)
+    assert render_block_string(ir.Table(cell, ())).split("\n") == [r"| $a\|b$ |", "| --- |"]
+
+
+def test_math_in_heading() -> None:
+    assert (
+        render_block_string(ir.Heading(2, (ir.Text("E = "), ir.Math("mc^2")))) == "### E = $mc^2$"
+    )
+
+
+def test_math_in_list_item() -> None:
+    entry = ir.ListItem((ir.Paragraph((ir.Math("x"),)),))
+    assert render_block_string(ir.ListBlock(ordered=False, items=(entry,))) == "- $x$"
