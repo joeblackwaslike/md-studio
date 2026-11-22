@@ -1,58 +1,76 @@
 """Size- and time-capped loading of an HTML source from a URL or local file."""
 
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 
 from md_studio.core.exceptions import ReadError
+from md_studio.readers.urls import display_url, url_scheme
 
 MAX_BYTES = 52_428_800
 TIMEOUT_SECONDS = 30.0
 DEADLINE_SECONDS = 30.0
 MAX_REDIRECTS = 3
 _SCHEMES = ("http", "https")
-_CHUNK = 65_536
+_TOO_BIG = "HTML source exceeds the size cap"
+_clock = time.monotonic
 
 
-def _too_big() -> ReadError:
-    return ReadError(f"HTML source exceeds {MAX_BYTES} bytes")
+@dataclass(frozen=True, slots=True)
+class LoadedSource:
+    """Raw bytes of a source, a credential-free display name, and any declared charset."""
+
+    raw: bytes
+    name: str
+    charset: str | None = None
 
 
-def _drain(response: httpx.Response, url: str, deadline: float) -> bytes:
-    """Read the body of *response*, enforcing the size cap and the total deadline."""
+def _drain(response: httpx.Response, name: str, deadline: float) -> bytes:
+    """Read the decoded body of *response*, enforcing the size cap and total deadline."""
     declared = response.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > MAX_BYTES:
-        raise _too_big()
+        raise ReadError(_TOO_BIG)
     payload = bytearray()
-    for chunk in response.iter_bytes(_CHUNK):
-        payload.extend(chunk)
+    for piece in response.iter_bytes():
+        payload.extend(piece)
         if len(payload) > MAX_BYTES:
-            raise _too_big()
-        if time.monotonic() > deadline:
-            raise ReadError(f"Fetching {url} exceeded the {DEADLINE_SECONDS}s deadline")
+            raise ReadError(_TOO_BIG)
+        if _clock() > deadline:
+            raise ReadError(f"Fetching {name} exceeded the total deadline")
     return bytes(payload)
 
 
-def _fetch(url: str, transport: httpx.BaseTransport | None) -> bytes:
-    """Stream *url* into memory, enforcing the size cap on bytes actually read."""
-    deadline = time.monotonic() + DEADLINE_SECONDS
-    client = httpx.Client(
+def _client(transport: httpx.BaseTransport | None) -> httpx.Client:
+    return httpx.Client(
         timeout=TIMEOUT_SECONDS,
         follow_redirects=True,
         max_redirects=MAX_REDIRECTS,
         transport=transport,
     )
+
+
+def _failure(name: str, exc: httpx.HTTPError | httpx.InvalidURL) -> ReadError:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return ReadError(f"Could not fetch {name}: HTTP {status}")
+    return ReadError(f"Could not fetch {name}: {type(exc).__name__}")
+
+
+def _fetch(url: str, transport: httpx.BaseTransport | None) -> LoadedSource:
+    """Stream *url* into memory, enforcing the size cap on bytes actually read."""
+    name = display_url(url)
+    deadline = _clock() + DEADLINE_SECONDS
     try:
-        with client, client.stream("GET", url) as response:
+        with _client(transport) as client, client.stream("GET", url) as response:
             response.raise_for_status()
-            return _drain(response, url, deadline)
-    except httpx.HTTPError as exc:
-        raise ReadError(f"Could not fetch {url}: {exc}") from exc
+            return LoadedSource(_drain(response, name, deadline), name, response.charset_encoding)
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+        raise _failure(name, exc) from exc
 
 
-def _read_file(path: Path) -> bytes:
+def _read_file(path: Path) -> LoadedSource:
     """Read *path* with the same size cap as network fetches."""
     try:
         with path.open("rb") as stream:
@@ -60,32 +78,21 @@ def _read_file(path: Path) -> bytes:
     except (OSError, ValueError) as exc:
         raise ReadError(f"Could not read {path}: {exc}") from exc
     if len(payload) > MAX_BYTES:
-        raise _too_big()
-    return payload
+        raise ReadError(_TOO_BIG)
+    return LoadedSource(payload, path.name)
 
 
-def _scheme(source: Path | str) -> str:
-    if not isinstance(source, str):
-        return ""
-    try:
-        return urlsplit(source).scheme.lower()
-    except ValueError as exc:
-        raise ReadError(f"Malformed source {source!r}: {exc}") from exc
-
-
-def load_source(source: Path | str, transport: httpx.BaseTransport | None) -> tuple[bytes, str]:
-    """Return the raw bytes and display name of an http(s) URL or local file.
+def load_source(source: Path | str, transport: httpx.BaseTransport | None) -> LoadedSource:
+    """Load an http(s) URL or local file.
 
     Raises
     ------
     ReadError
         On an unsupported scheme, fetch or read failure, or input over ``MAX_BYTES``.
     """
-    text = str(source)
-    scheme = _scheme(source)
+    scheme = url_scheme(source)
     if scheme in _SCHEMES:
-        return _fetch(text, transport), text
-    if "://" in text:
-        raise ReadError(f"Unsupported URL scheme {scheme!r}; only http and https are allowed")
-    path = Path(source)
-    return _read_file(path), path.name
+        return _fetch(str(source), transport)
+    if "://" in str(source):
+        raise ReadError(f"Unsupported URL scheme {scheme!r}; use http or https")
+    return _read_file(Path(source))

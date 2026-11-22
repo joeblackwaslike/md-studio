@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from lxml import etree
@@ -9,19 +10,25 @@ from lxml import html as lxml_html
 
 from md_studio.core.document import Document, DocumentMetadata, SourceChapter
 from md_studio.core.exceptions import ReadError
-from md_studio.readers.source import load_source
+from md_studio.readers.decode import decode_html
+from md_studio.readers.source import LoadedSource, load_source
 
 type HtmlElement = lxml_html.HtmlElement  # type: ignore[no-any-unimported]
 ChapterSplitter = Callable[[HtmlElement], list[SourceChapter]]
 
 
-def _parse(raw: bytes, name: str) -> HtmlElement:
-    parser = lxml_html.HTMLParser(no_network=True, remove_comments=True)
+def _parser(encoding: str | None) -> lxml_html.HTMLParser:  # type: ignore[no-any-unimported]
+    return lxml_html.HTMLParser(no_network=True, remove_comments=True, encoding=encoding)
+
+
+def _parse(loaded: LoadedSource) -> HtmlElement:
+    text = decode_html(loaded.raw, loaded.charset)
+    payload = loaded.raw if text is None else text.encode("utf-8")
+    parser = _parser(None if text is None else "utf-8")
     try:
-        root = lxml_html.document_fromstring(raw, parser=parser)
+        return lxml_html.document_fromstring(payload, parser=parser)
     except (etree.ParserError, etree.XMLSyntaxError) as exc:
-        raise ReadError(f"Could not parse HTML from {name}: {exc}") from exc
-    return root
+        raise ReadError(f"Could not parse HTML from {loaded.name}: {exc}") from exc
 
 
 def _split(root: HtmlElement, splitter: ChapterSplitter) -> list[SourceChapter]:
@@ -34,10 +41,18 @@ def _split(root: HtmlElement, splitter: ChapterSplitter) -> list[SourceChapter]:
     return chapters
 
 
+def _fallback_title(name: str) -> str:
+    if "://" not in name:
+        return Path(name).stem
+    parts = urlsplit(name)
+    segment = parts.path.rstrip("/").rpartition("/")[2]
+    return Path(segment).stem or parts.netloc
+
+
 def _single_chapter(root: HtmlElement, title: str, name: str) -> SourceChapter:
     body = root.find("body")
     return SourceChapter(
-        title or Path(name).stem,
+        title or _fallback_title(name),
         root if body is None else body,
         title_is_fallback=not title,
     )
@@ -78,8 +93,8 @@ def read_html(
         On an unsupported scheme, fetch or read failure, oversize input, unparseable
         HTML, or a splitter that fails or yields no chapters.
     """
-    raw, name = load_source(source, transport)
-    root = _parse(raw, name)
-    title = (root.findtext(".//title") or "").strip()
-    chapters = _chapters(root, title, name, splitter)
-    return Document(DocumentMetadata(title=title, source_file=name), tuple(chapters))
+    loaded = load_source(source, transport)
+    root = _parse(loaded)
+    title = (root.findtext("head/title") or "").strip()
+    chapters = _chapters(root, title, loaded.name, splitter)
+    return Document(DocumentMetadata(title=title, source_file=loaded.name), tuple(chapters))
