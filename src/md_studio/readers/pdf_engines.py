@@ -1,6 +1,7 @@
 """PDF engines: the protocol the PDF reader calls, and the Docling implementation."""
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -9,6 +10,7 @@ from md_studio.core.exceptions import ReadError
 _LOG = logging.getLogger(__name__)
 _MISSING = "PDF support needs Docling; install it with: pip install 'md-studio[pdf]'"
 _SLOW_FORMULAS = "Formula enrichment is on; Docling spends about 47 seconds per formula"
+_DEPENDENCIES = frozenset(("docling", "docling_core", "pypdfium2"))
 
 
 class PdfEngine(Protocol):
@@ -17,9 +19,39 @@ class PdfEngine(Protocol):
     def to_html(self, path: Path, images_dir: Path) -> str:
         """Return HTML for *path*: flat top-level blocks, each with a ``data-page`` attribute.
 
-        Headings are ``h1`` to ``h6`` by outline depth, display math is
-        ``<md-math display="block" tex="...">``, and pictures are written into *images_dir*.
+        Headings are ``h1`` to ``h6`` by outline depth and display math is
+        ``<md-math display="block" tex="...">``. *images_dir* is scratch space for engines
+        that extract pictures; the Docling engine does not use it, and pictures are rendered
+        as their caption text only.
         """
+
+
+def _load() -> Callable[..., str]:
+    from md_studio.readers.pdf_docling import convert_pdf  # noqa: PLC0415
+
+    return convert_pdf
+
+
+def _is_dependency(name: str | None) -> bool:
+    return name is not None and name.partition(".")[0] in _DEPENDENCIES
+
+
+def _loaded() -> Callable[..., str]:
+    try:
+        return _load()
+    except ModuleNotFoundError as error:
+        if not _is_dependency(error.name):
+            raise
+        raise ReadError(_MISSING) from None
+
+
+def _run(convert: Callable[..., str], path: Path, *, formulas: bool) -> str:
+    try:
+        return convert(path, formulas=formulas)
+    except ReadError:
+        raise
+    except Exception as error:
+        raise ReadError(f"Could not convert {path.name}: {error}") from error
 
 
 class DoclingEngine:
@@ -42,12 +74,10 @@ class DoclingEngine:
         Raises
         ------
         ReadError
-            When Docling is not installed.
+            When Docling or one of its dependencies is not installed, or the conversion
+            fails for any reason (damaged, encrypted or non-PDF input, too many pages).
         """
-        try:
-            from md_studio.readers.pdf_docling import convert_pdf  # noqa: PLC0415
-        except ImportError:
-            raise ReadError(_MISSING) from None
+        convert = _loaded()
         if self._formulas:
             _LOG.warning(_SLOW_FORMULAS)
-        return convert_pdf(path, images_dir, formulas=self._formulas)
+        return _run(convert, path, formulas=self._formulas)

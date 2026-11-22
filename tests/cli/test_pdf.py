@@ -1,6 +1,5 @@
 """CLI wiring of the PDF reader, with a stub engine and no Docling or network."""
 
-import sys
 from pathlib import Path
 
 import httpx
@@ -10,7 +9,7 @@ from typer.testing import CliRunner
 from md_studio.cli import app, sources
 from md_studio.extractors import Extractor
 from md_studio.extractors.arxiv import ArxivClient, ArxivExtractor
-from md_studio.readers import pdf
+from md_studio.readers import pdf, pdf_engines
 
 HTML = (
     '<html><body><h1 data-page="1">Intro</h1><p data-page="1">hello pdf</p>'
@@ -21,6 +20,11 @@ HTML = (
 class _Stub:
     def to_html(self, path: Path, images_dir: Path) -> str:
         return HTML
+
+
+class _Missing:
+    def __call__(self) -> None:
+        raise ModuleNotFoundError("No module named 'docling'", name="docling")
 
 
 class _Arxiv:
@@ -50,7 +54,7 @@ def test_cli_converts_a_pdf_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 def test_missing_pdf_extra_is_a_one_line_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setitem(sys.modules, "md_studio.readers.pdf_docling", None)
+    monkeypatch.setattr(pdf_engines, "_load", _Missing())
     source = tmp_path / "x.pdf"
     source.write_bytes(b"%PDF")
 

@@ -19,10 +19,10 @@ def _level(element: HtmlElement) -> int | None:
 
 def _pages(elements: Iterable[HtmlElement]) -> tuple[int, int] | None:
     numbers = [
-        int(page)
+        number
         for element in elements
         for node in element.iter()
-        if (page := node.get("data-page", "")).isdigit()
+        if (number := int(node.get("data-page", "0") or 0)) > 0
     ]
     return (min(numbers), max(numbers)) if numbers else None
 

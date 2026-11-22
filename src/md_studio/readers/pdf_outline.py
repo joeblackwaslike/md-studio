@@ -1,11 +1,21 @@
-"""Read a PDF's outline, since Docling emits every heading at one level."""
+"""Read a PDF's outline and page count with pdfium, before and beside Docling."""
 
 from contextlib import closing
 from pathlib import Path
 
 import pypdfium2
 
+from md_studio.core.exceptions import ReadError
+from md_studio.readers import limits
 from md_studio.readers.pdf_levels import outline_key
+
+
+def ensure_page_limit(path: Path) -> None:
+    """Raise :class:`ReadError` when the PDF has more than ``limits.MAX_PAGES`` pages."""
+    with closing(pypdfium2.PdfDocument(path)) as pdf:
+        pages = len(pdf)
+    if pages > limits.MAX_PAGES:
+        raise ReadError(f"{path.name} has {pages} pages; the limit is {limits.MAX_PAGES}")
 
 
 def outline_levels(path: Path) -> dict[str, int]:

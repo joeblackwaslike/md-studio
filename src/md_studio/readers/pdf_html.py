@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from functools import singledispatch
 from html import escape
 from itertools import groupby
-from pathlib import Path
 from typing import NamedTuple
 
 from docling_core.types.doc.document import DoclingDocument
@@ -31,7 +30,6 @@ _RUNNING = frozenset((DocItemLabel.PAGE_HEADER, DocItemLabel.PAGE_FOOTER))
 class _Context:
     document: DoclingDocument
     outline: Mapping[str, int]
-    images: Path
     front: frozenset[str] = frozenset()
 
 
@@ -40,9 +38,12 @@ class _Entry(NamedTuple):
     page: int
 
 
+def _attr(page: int) -> str:
+    return f' data-page="{page}"' if page else ""
+
+
 def _tag(name: str, page: int, body: str) -> str:
-    attr = f' data-page="{page}"' if page else ""
-    return f"<{name}{attr}>{body}</{name}>"
+    return f"<{name}{_attr(page)}>{body}</{name}>"
 
 
 def _entries(document: DoclingDocument) -> Iterator[_Entry]:
@@ -60,19 +61,13 @@ def _block(node: DocItem, page: int, ctx: _Context) -> str:
 
 @_block.register
 def _picture(node: PictureItem, page: int, ctx: _Context) -> str:
-    image = node.get_image(ctx.document)
-    if image is None:
-        return ""
-    number = len(list(ctx.images.iterdir())) + 1
-    name = f"picture-{number}.png"
-    image.save(ctx.images / name)
-    alt = escape(node.caption_text(ctx.document), quote=True)
-    return _tag("p", page, f'<img src="{name}" alt="{alt}">')
+    caption = node.caption_text(ctx.document)
+    return _tag("p", page, escape(caption)) if caption else ""
 
 
 @_block.register
 def _table(node: TableItem, page: int, ctx: _Context) -> str:
-    marker = f'<table data-page="{page}"'
+    marker = f"<table{_attr(page)}"
     return node.export_to_html(doc=ctx.document).replace("<table", marker, 1)
 
 
@@ -81,8 +76,7 @@ def _formula(node: FormulaItem, page: int, ctx: _Context) -> str:
     if not node.text.strip():
         return ""
     tex = escape(node.text, quote=True)
-    attrs = f'display="block" tex="{tex}" data-page="{page}"'
-    return f"<md-math {attrs}></md-math>"
+    return f'<md-math display="block" tex="{tex}"{_attr(page)}></md-math>'
 
 
 def _level(node: SectionHeaderItem | TitleItem, ctx: _Context) -> int:
@@ -111,6 +105,15 @@ def _is_list(entry: _Entry) -> bool:
     return isinstance(entry.node, ListItem)
 
 
+def _list_tag(entry: _Entry) -> str:
+    return "ol" if isinstance(entry.node, ListItem) and entry.node.enumerated else "ul"
+
+
+def _listing(entries: list[_Entry]) -> str:
+    body = "".join(map(_li, entries))
+    return _tag(_list_tag(entries[0]), 0, body)
+
+
 def _li(entry: _Entry) -> str:
     return _tag("li", entry.page, escape(_text(entry)))
 
@@ -122,7 +125,7 @@ def _text(entry: _Entry) -> str:
 def _render(pair: tuple[bool, Iterable[_Entry]], ctx: _Context) -> str:
     listed, run = pair
     if listed:
-        return _tag("ul", 0, "".join(map(_li, run)))
+        return _listing(list(run))
     return "".join(_block(entry.node, entry.page, ctx) for entry in run)
 
 
@@ -138,13 +141,14 @@ def _front(entries: list[_Entry], outline: Mapping[str, int]) -> frozenset[str]:
     return frozenset(heading.self_ref for heading in headings[:count])
 
 
-def document_html(document: DoclingDocument, outline: Mapping[str, int], images_dir: Path) -> str:
+def document_html(document: DoclingDocument, outline: Mapping[str, int]) -> str:
     """Return *document* as HTML, dropping running headers and footers.
 
     Headings take their level from *outline*, except those before the first outline match,
     which are level 1. Text blocks keep their reading order, and list items are grouped into
-    lists. Code blocks arrive from Docling without indentation.
+    lists (ordered when numbered). Pictures keep only their caption text, and code blocks
+    arrive from Docling without indentation.
     """
     entries = list(_entries(document))
-    body = _body(entries, _Context(document, outline, images_dir, _front(entries, outline)))
+    body = _body(entries, _Context(document, outline, _front(entries, outline)))
     return f"<html><body>{body}</body></html>"
