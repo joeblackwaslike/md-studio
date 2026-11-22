@@ -768,12 +768,52 @@ def test_trailing_bytes_after_the_stream_are_ignored() -> None:
     assert document.metadata.title == "Hello"
 
 
-def test_only_the_first_gzip_member_is_decoded() -> None:
-    body = b"".join([gzip.compress(PAGE.encode()), gzip.compress(b"<title>Second</title>")])
+MEMBERS = b"".join([gzip.compress(b"<p>one</p>"), gzip.compress(b"<p>two</p>")])
 
-    document = read_html("https://example.com/g", transport=_delivered(body, "gzip", 1000))
 
-    assert document.metadata.title == "Hello"
+@pytest.mark.parametrize("size", [10**6, 1])
+def test_concatenated_gzip_members_are_all_decoded(size: int) -> None:
+    document = read_html("https://example.com/m", transport=_delivered(MEMBERS, "gzip", size))
+
+    assert _text(document).strip() == "onetwo"
+
+
+def test_truncated_second_gzip_member_is_rejected() -> None:
+    with pytest.raises(ReadError, match="truncated"):
+        read_html("https://example.com/m", transport=_delivered(MEMBERS[:-5], "gzip", 1000))
+
+
+def test_cap_is_shared_across_gzip_members(monkeypatch: pytest.MonkeyPatch) -> None:
+    _small_cap(monkeypatch)
+    member = gzip.compress(b"<p>".ljust(60, b"x"))
+
+    with pytest.raises(ReadError, match="exceeds"):
+        read_html("https://example.com/m", transport=_delivered(member + member, "gzip", 1000))
+
+
+@pytest.mark.parametrize("size", [10**6, 1])
+def test_zero_padding_after_the_last_member_is_tolerated(size: int) -> None:
+    body = b"".join([MEMBERS, bytes(8)])
+
+    document = read_html("https://example.com/m", transport=_delivered(body, "gzip", size))
+
+    assert _text(document).strip() == "onetwo"
+
+
+def test_garbage_after_a_complete_member_is_ignored() -> None:
+    body = b"".join([MEMBERS, b"not gzip at all"])
+
+    document = read_html("https://example.com/m", transport=_delivered(body, "gzip", 7))
+
+    assert _text(document).strip() == "onetwo"
+
+
+def test_deflate_stays_single_stream() -> None:
+    body = b"".join([zlib.compress(b"<p>one</p>"), zlib.compress(b"<p>two</p>")])
+
+    document = read_html("https://example.com/m", transport=_delivered(body, "deflate", 1000))
+
+    assert _text(document).strip() == "one"
 
 
 class _Blocking(httpx.BaseTransport):

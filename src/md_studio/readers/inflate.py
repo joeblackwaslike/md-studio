@@ -14,6 +14,8 @@ _CM_DEFLATE = 8
 _FCHECK_MODULUS = 31
 _OUTPUT_STEP = 65_536
 _SNIFF_BYTES = 2
+_GZIP_MAGIC = b"\x1f\x8b"
+_TRUNCATED = "Compressed response body is truncated"
 
 
 def _wbits(coding: str, head: bytes) -> int:
@@ -39,33 +41,73 @@ def _feed(inflater: "zlib._Decompress", chunk: bytes) -> Iterator[bytes]:
         pending = inflater.unconsumed_tail
 
 
-def _finish(inflater: "zlib._Decompress") -> Iterator[bytes]:
-    """Drain output still pending after the last piece, then require a complete stream."""
-    yield from iter(partial(_step, inflater, b""), b"")
-    if not inflater.eof:
-        raise ReadError("Compressed response body is truncated")
+class _Decoder:
+    """Decode one deflate stream, or every concatenated member of a gzip stream."""
+
+    def __init__(self, coding: str) -> None:
+        self._coding = coding
+        self._carry = bytearray()
+        self._inflater: zlib._Decompress | None = None
+        self._ignoring = False
+
+    def feed(self, chunk: bytes) -> Iterator[bytes]:
+        """Yield decoded output for the next raw *chunk*."""
+        self._carry.extend(chunk)
+        while self._carry and not self._ignoring:
+            inflater = self._active()
+            if inflater is None:
+                break
+            pending = bytes(self._carry)
+            self._carry.clear()
+            yield from _feed(inflater, pending)
+            if inflater.eof:
+                self._carry.extend(inflater.unused_data)
+
+    def finish(self) -> Iterator[bytes]:
+        """Drain pending output, then require the last member to have ended."""
+        inflater = self._inflater
+        if inflater is None:
+            if self._carry:
+                raise ReadError(_TRUNCATED)
+        else:
+            yield from iter(partial(_step, inflater, b""), b"")
+            if not inflater.eof:
+                raise ReadError(_TRUNCATED)
+
+    def _active(self) -> "zlib._Decompress | None":
+        """Return the inflater ``_carry`` should be fed to, starting a member if needed."""
+        finished = self._inflater is not None and self._inflater.eof
+        if finished and self._coding == "deflate":
+            self._stop()
+            return None
+        if finished:
+            self._carry = bytearray(bytes(self._carry).lstrip(b"\0"))
+        head = bytes(self._carry[:_SNIFF_BYTES])
+        if len(head) < _SNIFF_BYTES:
+            return None
+        if finished and head != _GZIP_MAGIC:
+            self._stop()
+            return None
+        if self._inflater is None or finished:
+            self._inflater = zlib.decompressobj(_wbits(self._coding, head))
+        return self._inflater
+
+    def _stop(self) -> None:
+        self._ignoring = True
+        self._carry.clear()
 
 
 def expand(pieces: Iterable[bytes], coding: str | None) -> Iterator[bytes]:
     """Yield decoded output in steps of at most ``_OUTPUT_STEP`` bytes.
 
-    The format is chosen once two bytes have arrived. Bytes after the end of the
-    compressed stream, including further gzip members, are ignored.
+    The format is chosen once two bytes have arrived. Gzip members are decoded one
+    after another, zero padding after the last is tolerated, and any other bytes after
+    a complete member are ignored. Deflate is a single stream.
     """
     if coding is None:
         yield from pieces
         return
-    head = bytearray()
-    inflater = None
+    decoder = _Decoder(coding)
     for piece in pieces:
-        if inflater is not None:
-            yield from _feed(inflater, piece)
-            continue
-        head.extend(piece)
-        if len(head) >= _SNIFF_BYTES:
-            inflater = zlib.decompressobj(_wbits(coding, bytes(head)))
-            yield from _feed(inflater, bytes(head))
-    if inflater is None and head:
-        raise ReadError("Compressed response body is truncated")
-    if inflater is not None:
-        yield from _finish(inflater)
+        yield from decoder.feed(piece)
+    yield from decoder.finish()
