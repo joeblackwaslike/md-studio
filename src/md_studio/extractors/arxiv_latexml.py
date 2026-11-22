@@ -8,7 +8,7 @@ rewrite per construct, so its cost is linear in the size of the page.
 """
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import ClassVar, cast
 
 from md_studio.core.document import Document, SourceChapter
@@ -30,6 +30,7 @@ NOT_LATEXML = "arxiv-latexml: no LaTeXML chapters found; the page was left as it
 RELATIVE_IMAGES = (
     "arxiv-latexml: some image sources could not be made absolute and were left as they are"
 )
+NO_TEX = "arxiv-latexml: {count} math elements had no TeX source; used their text content"
 RELATIVE_LINKS = "arxiv-latexml: some relative links could not be made absolute (paper id unknown)"
 
 
@@ -74,37 +75,52 @@ class LatexmlFix:
         return _rewrite(document, found)
 
 
+@dataclass(frozen=True, slots=True)
+class _Outcome:
+    images: int
+    links: int
+    math: int
+    has_equations: bool
+
+
 def _rewrite(document: Document, found: Findings) -> Document:
-    paper = parse_arxiv_id(document.metadata.source_file)
-    images, links, has_equations = _rewrite_markup(found, paper)
+    outcome = _rewrite_markup(found, parse_arxiv_id(document.metadata.source_file))
     return replace(
         document,
         metadata=rewrite_metadata(document.metadata, found),
-        chapters=tuple(SourceChapter(entry.title, entry.element) for entry in found.entries),
-        has_math=document.has_math or bool(found.maths) or has_equations,
+        chapters=tuple(
+            SourceChapter(entry.title, entry.element, heading=entry.heading)
+            for entry in found.entries
+        ),
+        has_math=document.has_math or bool(found.maths) or outcome.has_equations,
         embed_images=True,
-        warnings=(*document.warnings, *_notes(images=images, links=links)),
+        warnings=(*document.warnings, *_notes(outcome)),
     )
 
 
-def _notes(*, images: int, links: int) -> list[str]:
-    notes = [RELATIVE_IMAGES] if images else []
-    return [*notes, RELATIVE_LINKS] if links else notes
+def _notes(outcome: _Outcome) -> list[str]:
+    notes = [RELATIVE_IMAGES] if outcome.images else []
+    if outcome.links:
+        notes.append(RELATIVE_LINKS)
+    if outcome.math:
+        notes.append(NO_TEX.format(count=outcome.math))
+    return notes
 
 
-def _rewrite_markup(found: Findings, paper: str | None) -> tuple[int, int, bool]:
-    """Rewrite every construct the scan found, in an order that keeps titles and anchors right.
+def _discard(elements: list[HtmlElement]) -> None:
+    for element in elements:
+        element.drop_tree()
 
-    Returns how many image sources and links stayed relative, and whether any equation became
-    math.
-    """
+
+def _rewrite_markup(found: Findings, paper: str | None) -> _Outcome:
+    """Rewrite every construct the scan found, in an order that keeps titles and anchors right."""
     set_entry_titles(found.entries)
     targets = anchors(found)
-    for dropped in found.dropped:
-        dropped.drop_tree()
-    has_equations = rewrite_blocks(found.blocks)
+    _discard(found.dropped)
+    blocks = rewrite_blocks(found.blocks)
     rewrite_footnotes(found.notes)
-    rewrite_math(found.maths)
+    inline = rewrite_math(found.maths)
     images = rewrite_images(found.images, paper)
     demote_headings(found.headings, found.entry_depth)
-    return images, rewrite_links(found.links, targets, paper), has_equations
+    links = rewrite_links(found.links, targets, paper)
+    return _Outcome(images, links, blocks.missing + inline, blocks.has_math)

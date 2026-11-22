@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from md_studio.extractors.latexml_classes import classes_of
 from md_studio.extractors.latexml_findings import Entry
 from md_studio.extractors.latexml_loose import TITLE_ATTR
-from md_studio.extractors.latexml_text import plain_text
+from md_studio.extractors.latexml_text import heading_markup, plain_text
 from md_studio.readers.html import HtmlElement
 
 _SEPARATOR = " \u00b7 "
@@ -26,7 +26,10 @@ def set_entry_titles(entries: Iterable[Entry]) -> None:
         if heading is None:
             entry.title = entry.element.get(TITLE_ATTR, "")
             continue
-        entry.title = _prefixed(entry, plain_text(heading), labels)
+        title = plain_text(heading)
+        markup = heading_markup(heading)
+        entry.title = _prefixed(entry, title, labels)
+        entry.heading = "" if markup == title else _prefixed(entry, markup, labels)
         heading.drop_tree()
 
 

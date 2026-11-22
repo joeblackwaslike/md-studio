@@ -1,7 +1,6 @@
 """The LaTeXML source fix, on a small hand-built page that mirrors arXiv's markup."""
 
 import re
-import time
 from dataclasses import replace
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -18,6 +17,7 @@ from md_studio.core.extensions import discovery as discovery_mod
 from md_studio.extractors.arxiv_latexml import LatexmlFix
 from md_studio.extractors.latexml_slugs import github_slugs, slugify
 from md_studio.readers.html import read_html
+from tests.extractors.linear import assert_linear
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "latexml_mini.html"
 PAPER = "https://arxiv.org/html/2606.24937v3"
@@ -329,24 +329,14 @@ def _synthetic(chapters: int, sections: int) -> str:
     )
 
 
-def _timed(chapters: int, sections: int, tmp_path: Path) -> float:
+def _synthetic_document(chapters: int, sections: int, tmp_path: Path) -> Document:
     document = _page(_synthetic(chapters, sections), tmp_path=tmp_path)
-    document = replace(document, metadata=replace(document.metadata, source_file=PAPER))
-    best = float("inf")
-    for _ in range(3):
-        started = time.perf_counter()
-        LatexmlFix().apply(document)
-        best = min(best, time.perf_counter() - started)
-    return best
+    return replace(document, metadata=replace(document.metadata, source_file=PAPER))
 
 
-@pytest.mark.parametrize(("chapters", "sections"), [(1, 300), (60, 5)], ids=["one-chapter", "many"])
-def test_cost_grows_linearly_with_page_size(chapters: int, sections: int, tmp_path: Path) -> None:
-    small = _timed(chapters, sections, tmp_path)
-    large = (
-        _timed(chapters * 4, sections, tmp_path)
-        if chapters > 1
-        else _timed(1, sections * 4, tmp_path)
-    )
+def test_cost_grows_linearly_with_the_sections_of_one_chapter(tmp_path: Path) -> None:
+    assert_linear(lambda size: _synthetic_document(1, size, tmp_path), 40)
 
-    assert large < small * 8
+
+def test_cost_grows_linearly_with_the_number_of_chapters(tmp_path: Path) -> None:
+    assert_linear(lambda size: _synthetic_document(size, 5, tmp_path), 10)

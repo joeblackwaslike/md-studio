@@ -13,6 +13,7 @@ class Entry:
     part: HtmlElement | None
     title_element: HtmlElement | None = None
     title: str = ""
+    heading: str = ""
 
 
 @dataclass(slots=True)

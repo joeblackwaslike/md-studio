@@ -31,10 +31,13 @@ class ChapterIR:
     """One assembled chapter: a title, body blocks, and hoisted footnotes.
 
     ``title_is_fallback`` marks a title that is only a generated placeholder (the file
-    stem or ``Chapter N``), which an extension may replace with a real heading.
+    stem or ``Chapter N``), which an extension may replace with a real heading. ``heading``,
+    when set, is ready-made Markdown for the ``##`` line (a title with math in it), written
+    as is; ``title`` stays the plain text used for the front matter and for matching.
     """
 
     title: str
     blocks: tuple[Block, ...]
     footnotes: tuple[FootnoteDef, ...] = ()
     title_is_fallback: bool = False
+    heading: str = ""

@@ -21,32 +21,49 @@ _ALIGNED = r"""\begin{{aligned}}
 _CELL_JOIN = " & "
 _ROW_JOIN = r""" \\
 """
+type _Rows = tuple[list[list[str]], int]
+type _Equation = tuple[HtmlElement | None, int]
 _DISPLAY = "display"
 _BLOCK = "block"
 
 
-def equation_block(equation: HtmlElement) -> HtmlElement | None:
-    """Return a display-math element for an equation table or group, or ``None`` when empty."""
-    tex = equation_tex(equation)
+def source_of(math: HtmlElement) -> tuple[str, bool]:
+    """Return a ``<math>``'s TeX (its ``alttext``) and whether that had to be a fallback.
+
+    Without ``alttext`` the TeX is the MathML text content, normalised, which may be empty.
+    """
+    tex = math.get(_ALTTEXT)
+    if tex:
+        return tex, False
+    return " ".join("".join(math.itertext()).split()), True
+
+
+def equation_block(equation: HtmlElement) -> _Equation:
+    """Return a display-math element for an equation table or group, and its missing-TeX count.
+
+    The element is ``None`` when the equation holds no text at all.
+    """
+    tex, missing = equation_tex(equation)
     if not tex:
-        return None
+        return None, missing
     block = lxml_html.Element(MATH_TAG)
     block.set(MATH_TEX_ATTR, tex)
     block.set(_DISPLAY, _BLOCK)
-    return block
+    return block, missing
 
 
-def equation_tex(equation: HtmlElement) -> str:
-    r"""Return the TeX of an equation table or group; several cells or rows become ``aligned``.
+def equation_tex(equation: HtmlElement) -> tuple[str, int]:
+    r"""Return the TeX of an equation table or group, and how many of its math lacked ``alttext``.
 
-    A group's rows are joined with ``\\`` and the cells of a row with ``&``, so the
-    columns line up as they did in the paper. Equation numbers are not math and are dropped.
+    Several cells or rows become ``aligned``: a group's rows are joined with ``\\`` and the
+    cells of a row with ``&``, so the columns line up as they did in the paper. Equation
+    numbers are not math and are dropped.
     """
-    rows = _rows(equation)
+    rows, missing = _rows(equation)
     if len(rows) == 1 and len(rows[0]) == 1:
-        return rows[0][0]
+        return rows[0][0], missing
     lines = _ROW_JOIN.join(_CELL_JOIN.join(row) for row in rows)
-    return _ALIGNED.format(rows=lines) if lines else ""
+    return (_ALIGNED.format(rows=lines) if lines else ""), missing
 
 
 def _is_row(node: HtmlElement) -> bool:
@@ -54,29 +71,42 @@ def _is_row(node: HtmlElement) -> bool:
     return _ROW_CLASS in classes.split()
 
 
-def _is_math(node: HtmlElement) -> bool:
-    return node.tag == "math" and bool(node.get(_ALTTEXT))
-
-
-def _rows(equation: HtmlElement) -> list[list[str]]:
+def _rows(equation: HtmlElement) -> _Rows:
     rows: list[list[str]] = [[]]
+    missing = 0
     for _, node in etree.iterwalk(equation, events=("start",)):
         if _is_row(node) and rows[-1]:
             rows.append([])
-        elif _is_math(node):
-            rows[-1].append(node.get(_ALTTEXT, ""))
-    return [row for row in rows if row]
+        elif node.tag == "math":
+            tex, fallback = source_of(node)
+            missing += fallback
+            if tex:
+                rows[-1].append(tex)
+    return [row for row in rows if row], missing
 
 
-def rewrite_math(maths: Iterable[HtmlElement]) -> None:
-    """Turn every ``<math>`` into an ``md-math`` element carrying its ``alttext``."""
+def rewrite_math(maths: Iterable[HtmlElement]) -> int:
+    """Turn every ``<math>`` into an ``md-math`` element and return how many lacked ``alttext``.
+
+    A ``<math>`` with no TeX and no text at all is removed (its tail stays); it is counted.
+    """
+    missing = 0
     for math in maths:
-        tex = math.get(_ALTTEXT, "")
-        display = math.get(_DISPLAY, "inline")
-        tail = math.tail
-        math.clear()
-        math.tail = tail
-        math.tag = MATH_TAG
-        math.set(MATH_TEX_ATTR, tex)
-        if display == _BLOCK:
-            math.set(_DISPLAY, _BLOCK)
+        tex, fallback = source_of(math)
+        missing += fallback
+        if tex:
+            _convert(math, tex)
+        else:
+            math.drop_tree()
+    return missing
+
+
+def _convert(math: HtmlElement, tex: str) -> None:
+    display = math.get(_DISPLAY, "inline")
+    tail = math.tail
+    math.clear()
+    math.tail = tail
+    math.tag = MATH_TAG
+    math.set(MATH_TEX_ATTR, tex)
+    if display == _BLOCK:
+        math.set(_DISPLAY, _BLOCK)

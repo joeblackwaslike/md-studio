@@ -1,6 +1,5 @@
 """Second review round: top-level title blocks, run labels, linear anchors, odd nodes everywhere."""
 
-import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from md_studio.core.convert import convert
 from md_studio.core.document import Document
 from md_studio.extractors.arxiv_latexml import LatexmlFix
 from md_studio.readers.html import read_html
+from tests.extractors.linear import assert_linear
 from tests.extractors.test_arxiv_latexml import FIXTURE, PAPER
 from tests.extractors.test_arxiv_latexml_review import ARTICLE, _chapter, _page
 
@@ -68,20 +68,25 @@ def _heading_last(count: int, tmp_path: Path) -> Document:
     return _chapter(body, tmp_path)
 
 
-def _time(document: Document) -> float:
-    best = float("inf")
-    for _ in range(3):
-        started = time.perf_counter()
-        LatexmlFix().apply(document)
-        best = min(best, time.perf_counter() - started)
-    return best
+def _headingless(count: int, tmp_path: Path) -> Document:
+    nested = "".join(
+        f'<section id="n{index}" class="ltx_subsection"><div id="m{index}" class="ltx_para">'
+        '<p class="ltx_p">x</p></div></section>'
+        for index in range(count // 4)
+    )
+    children = "".join(
+        f'<div id="d{index}" class="ltx_para"><p class="ltx_p">t</p></div>'
+        for index in range(count)
+    )
+    return _chapter(f'<section id="S1" class="ltx_section">{children}{nested}</section>', tmp_path)
 
 
 def test_anchors_stay_linear_when_a_section_heading_comes_last(tmp_path: Path) -> None:
-    small = _time(_heading_last(2000, tmp_path))
-    large = _time(_heading_last(8000, tmp_path))
+    assert_linear(lambda size: _heading_last(size, tmp_path), 250)
 
-    assert large < small * 8
+
+def test_anchors_stay_linear_for_sections_with_no_heading_at_all(tmp_path: Path) -> None:
+    assert_linear(lambda size: _headingless(size, tmp_path), 250)
 
 
 RUNS = 7

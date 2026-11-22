@@ -1,7 +1,6 @@
 """Review fixes for the LaTeXML source fix: ordering, hostile input, chapterless papers, limits."""
 
 import re
-import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from md_studio.core.exceptions import ReadError
 from md_studio.extractors.arxiv_latexml import LatexmlFix
 from md_studio.extractors.latexml_text import plain_text
 from md_studio.readers.html import read_html
+from tests.extractors.linear import assert_linear
 from tests.extractors.test_arxiv_latexml import PAPER, _page
 
 ARTICLE = Path(__file__).parents[1] / "fixtures" / "latexml_article.html"
@@ -253,24 +253,15 @@ def _wide(count: int) -> str:
     return f'<section id="Pt1" class="ltx_part"><h2 class="ltx_title ltx_title_part"><span class="ltx_tag ltx_tag_part">Part I </span>P</h2>{chapters}{last}</section>'
 
 
-def _time_wide(count: int, tmp_path: Path) -> float:
+def _wide_document(count: int, tmp_path: Path) -> Document:
     document = _page(_wide(count), tmp_path=tmp_path)
-    document = replace(document, metadata=replace(document.metadata, source_file=PAPER))
-    best = float("inf")
-    for _ in range(3):
-        started = time.perf_counter()
-        LatexmlFix().apply(document)
-        best = min(best, time.perf_counter() - started)
-    return best
+    return replace(document, metadata=replace(document.metadata, source_file=PAPER))
 
 
 def test_cost_stays_linear_for_many_chapters_in_one_part_many_sibling_links_and_images(
     tmp_path: Path,
 ) -> None:
-    small = _time_wide(2000, tmp_path)
-    large = _time_wide(8000, tmp_path)
-
-    assert large < small * 8
+    assert_linear(lambda size: _wide_document(size, tmp_path), 250)
 
 
 @pytest.mark.parametrize(
