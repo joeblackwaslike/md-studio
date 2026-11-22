@@ -67,19 +67,18 @@ def _load(entry: EntryPoint) -> Registered:
 def discover_with_failures() -> tuple[Registry, Failures]:
     """Return the available registrations and why some names are unusable.
 
-    The first registration of a name wins (built-ins first). A later entry-point that
-    reuses a taken name is dropped and recorded in the failures under that name, so
-    asking for the name explicitly can report the collision; so are entry-points that
-    fail to load or register something unusable.
+    The first registration of a name wins (built-ins first); a later entry-point that
+    reuses a taken name is ignored and logged, and never blocks the retained one. The
+    failures cover only names with no retained registration: entry-points that fail to
+    load or register something unusable.
     """
     registry = _builtin_registry()
     failures: Failures = {}
     for entry in entry_points(group=ENTRY_POINT_GROUP):
         taken = registry.get(entry.name)
         if taken is not None:
-            logger.warning("Ignoring entry-point %r: name already registered", entry.name)
-            failures[entry.name] = (
-                f"name already registered by {taken.__name__}; entry-point ignored"
+            logger.warning(
+                "Ignoring entry-point %r: name already registered by %s", entry.name, taken.__name__
             )
             continue
         try:

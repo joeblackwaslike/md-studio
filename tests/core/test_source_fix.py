@@ -263,15 +263,12 @@ def test_keyboard_interrupt_during_construction_propagates(monkeypatch: pytest.M
         resolve(["interrupting"])
 
 
-def test_requesting_a_name_whose_registration_was_dropped_is_a_load_error(
+def test_a_built_in_still_runs_when_an_entry_point_reuses_its_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, _SourceFixNamedLikeBuiltin)
 
-    with pytest.raises(
-        ExtensionLoadError, match=r"extension 'fix-headings' failed to load: .*already registered"
-    ):
-        resolve(["fix-headings"])
+    assert [type(entry) for entry in resolve(["fix-headings"])] == [discovery_mod.FixHeadings]
 
 
 def test_collision_does_not_affect_other_requested_names(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -280,12 +277,29 @@ def test_collision_does_not_affect_other_requested_names(monkeypatch: pytest.Mon
     assert [type(entry) for entry in resolve(["reformat-toc"])] == [discovery_mod.ReformatToc]
 
 
-def test_requesting_a_dropped_duplicate_between_third_parties_is_a_load_error(
+def test_the_first_of_two_third_party_registrations_runs_and_the_second_is_ignored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, _FirstDuplicate, _SecondDuplicate)
 
-    with pytest.raises(
-        ExtensionLoadError, match=r"extension 'dup' failed to load: .*already registered"
-    ):
+    assert [type(entry) for entry in resolve(["dup"])] == [_FirstDuplicate]
+
+
+def test_a_broken_entry_point_with_a_unique_name_still_raises_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_named(monkeypatch, "broken-load", "not a class")
+
+    with pytest.raises(ExtensionLoadError, match="broken-load"):
+        resolve(["broken-load"])
+
+
+def test_a_dropped_duplicate_is_logged_not_raised(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _install(monkeypatch, _FirstDuplicate, _SecondDuplicate)
+
+    with caplog.at_level("WARNING"):
         resolve(["dup"])
+
+    assert "name already registered" in caplog.text

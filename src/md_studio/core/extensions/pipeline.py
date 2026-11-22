@@ -26,14 +26,14 @@ def _instantiate(name: str, registered: Registered) -> Resolved:
 
 
 def _lookup(name: str, registry: Registry, failures: Failures) -> Registered:
-    """Return the registration for *name*, raising when it is unknown or unusable."""
+    """Return the retained registration for *name*, raising when there is none."""
+    registered = registry.get(name)
+    if registered is not None:
+        return registered
     failure = failures.get(name)
     if failure is not None:
         raise ExtensionLoadError(name, failure)
-    registered = registry.get(name)
-    if registered is None:
-        raise UnknownExtensionError(name, sorted(registry))
-    return registered
+    raise UnknownExtensionError(name, sorted(registry))
 
 
 def resolve(names: list[str]) -> list[Resolved]:
@@ -44,8 +44,8 @@ def resolve(names: list[str]) -> list[Resolved]:
     UnknownExtensionError
         When a name is not registered.
     ExtensionLoadError
-        When the name's entry-point failed to load, registered an unusable object, was dropped
-        because the name was already registered, or its constructor raised.
+        When the name has no usable registration because its entry-point failed to load or
+        registered an unusable object, or when its constructor raised.
     """
     registry, failures = discover_with_failures()
     return [_instantiate(name, _lookup(name, registry, failures)) for name in names]
