@@ -170,3 +170,33 @@ def test_hostile_redirects_exit_with_one_error_line(
     assert len(outcome.output.strip().splitlines()) == 1
     assert "abc123" not in outcome.output
     assert server.paths == ["/html/2606.24937"]
+
+
+FIXTURE = Path(__file__).parents[1] / "fixtures" / "latexml_mini.html"
+
+
+class _FixtureBytes(httpx.SyncByteStream):
+    def __iter__(self) -> Iterator[bytes]:
+        yield FIXTURE.read_bytes()
+
+
+def _serve_fixture(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200, stream=_FixtureBytes(), headers={"content-type": "text/html; charset=utf-8"}
+    )
+
+
+def test_cli_converts_a_served_page_with_the_real_extractor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = ArxivClient(0, transport=httpx.MockTransport(_serve_fixture))
+    monkeypatch.setattr(sources, "build_extractors", lambda: (ArxivExtractor(client),))
+    destination = tmp_path / "paper.md"
+
+    outcome = _convert("2606.24937v3", "-o", destination)
+
+    assert outcome.exit_code == 0, outcome.output
+    text = destination.read_text(encoding="utf-8")
+    assert "\n## Part I \u00b7 Chapter 1 Basics\n" in text
+    assert "\n### 1.1 Softmax\n" in text
+    assert "ltx_" not in text
