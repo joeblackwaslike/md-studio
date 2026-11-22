@@ -1,4 +1,4 @@
-"""Core must stay free of CLI, sink, QA, and terminal-UI dependencies."""
+"""Core must stay free of CLI, sink, QA, extractor, and terminal-UI dependencies."""
 
 import ast
 from pathlib import Path
@@ -7,7 +7,12 @@ import pytest
 
 from md_studio import core
 
-FORBIDDEN_PACKAGES = frozenset(("md_studio.cli", "md_studio.sinks", "md_studio.qa"))
+FORBIDDEN_PACKAGES = frozenset((
+    "md_studio.cli",
+    "md_studio.sinks",
+    "md_studio.qa",
+    "md_studio.extractors",
+))
 FORBIDDEN_ROOTS = frozenset(("typer", "rich"))
 CORE_PACKAGE = "md_studio.core"
 
@@ -61,6 +66,8 @@ def _violations(source: str, package: str = "md_studio.core.render") -> list[str
         "from md_studio import sinks, ir",
         "from ...sinks import file",
         "from ... import qa",
+        "from md_studio.extractors.arxiv_latexml import LatexmlFix",
+        "from md_studio import extractors",
         "import md_studio.cli.app",
         "from rich.console import Console",
         "import typer",

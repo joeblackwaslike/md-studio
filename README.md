@@ -14,6 +14,7 @@ Extras: `cli` (typer, rich) and `pdf` (docling).
 
 ```bash
 md-studio convert BOOK.epub [-o PATH] [--ext NAMES] [--force] [--sink file|obsidian] [--vault PATH]
+md-studio convert <arxiv url|id> [--arxiv-id ID] [-o PATH]
 ```
 
 The output defaults to `BOOK.md` next to the source. `--ext` takes comma-separated names, enabled in the order given (see [Extensions](#extensions)). An existing destination is refused unless you pass `--force`, and the source file itself is never overwritten.
@@ -27,6 +28,18 @@ Nothing runs unless you name it with `--ext`. Built-ins: `fix-headings`, `remove
 - Every promotion is listed in `<output stem>.audit.md` (columns: chapter, text, original tag, original classes, level) next to the output, written only when something was promoted and only with the file sink (`--sink obsidian` writes no audit and says so). The Level column is the source heading level (1 means `h1`), the same numbering the old `fix_epub_headings.py` audit used; the Markdown output shifts every heading one level down under the chapter `##`. Each text cell is an inline code span with control characters, bidi marks and backticks removed, backslashes shown as the fullwidth lookalike `＼` (so no parser can read a pipe as escaped by the text) and pipes escaped, so untrusted EPUB text cannot become a link, emphasis or HTML. The report is written with the same atomic, symlink-refusing logic as the Markdown; an existing one is refused unless you pass `--force`, and that is checked before the `.md` is written.
 
 Extensions come in two kinds that share one name list. A Markdown extension subclasses `md_studio.core.extensions.MarkdownExtension` and transforms chapters. A source fix has a `name` and `apply(document) -> Document` (the `SourceFix` protocol) and runs before extraction, in listed order. To add either, write the class and register it in the `md_studio.extensions` entry-point group, or add it to `BUILTINS` in `md_studio/core/extensions/discovery.py`. Names are unique across both kinds: the first registration of a name wins (built-ins first), a later entry-point reusing it is ignored with a log warning, and an entry-point that fails to load or registers something unusable is reported only if you ask for its name.
+
+### arXiv papers
+
+`md-studio convert 2606.24937`, `md-studio convert https://arxiv.org/abs/2606.24937v3` and the `/pdf/` and `/html/` URLs all read the paper's HTML version at `https://arxiv.org/html/<id>`. Old-style ids such as `hep-th/9901001` work too. The output is `arxiv-<id>.md` in the current directory unless you pass `-o`.
+
+- `--arxiv-id ID` treats the source as that paper and ignores the source argument. It takes an id or an arXiv URL.
+- A path that exists on disk is never taken for an arXiv id.
+- The HTML route splits the paper into one chapter per chapter, appendix and the bibliography, with part names in the titles. Math comes from the original TeX (`$...$` and `$$...$$`), figures are embedded as `![caption](absolute url)`, and listings become fenced code with their language. This runs the `arxiv-latexml` source fix, which the extractor enables on its own, so you do not pass `--ext` for it.
+- A paper without chapters (an article) is split at its top-level sections instead, with the same rules for math, listings, footnotes, images and links. A page with neither chapters nor sections is left as it is, with a warning.
+- If arXiv has no HTML version the command fails with a clear error. The PDF fallback is not built yet.
+
+arXiv's access rules are built in. Only `/html/`, `/abs/` and `/pdf/` are fetched, never `/e-print` or `/src`. Requests within one run are spaced at least 15 seconds apart, redirect hops included, and carry a descriptive User-Agent. The spacing is kept per process, so it does not span separate `md-studio` invocations; do not script several runs back to back. Convert one paper at a time; there is no bulk mode.
 
 ### Obsidian sink
 

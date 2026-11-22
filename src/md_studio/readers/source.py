@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 
-from md_studio.core.exceptions import ReadError
+from md_studio.core.exceptions import FetchStatusError, ReadError
 from md_studio.readers import limits
 from md_studio.readers.body import read_body
 from md_studio.readers.deadline import MESSAGE, Deadline
@@ -27,7 +27,7 @@ class LoadedSource:
 def _failure(name: str, exc: httpx.HTTPError | httpx.InvalidURL | httpx.StreamError) -> ReadError:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
-        return ReadError(f"Could not fetch {name}: HTTP {status}")
+        return FetchStatusError(f"Could not fetch {name}: HTTP {status}", status)
     return ReadError(f"Could not fetch {name}: {type(exc).__name__}")
 
 

@@ -9,6 +9,15 @@ class ReadError(MdStudioError):
     """Raised when a source document cannot be opened or parsed."""
 
 
+class FetchStatusError(ReadError):
+    """Raised when a fetch ends in a non-success HTTP status."""
+
+    def __init__(self, message: str, status: int) -> None:
+        """Record the HTTP *status* alongside *message*."""
+        self.status = status
+        super().__init__(message)
+
+
 class OffsetOverflowError(MdStudioError):
     """Raised when a chapter offset exceeds the fixed front-matter field width."""
 

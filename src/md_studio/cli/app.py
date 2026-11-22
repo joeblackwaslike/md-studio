@@ -2,36 +2,23 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from types import MappingProxyType
 from typing import Annotated
 
 import typer
 
+from md_studio.cli import sources
 from md_studio.cli.files import convert_to_file
 from md_studio.cli.report import report_conversion
 from md_studio.cli.vault import VAULT_ENV, SinkChoice, convert_to_vault, open_vault_sink
-from md_studio.core.document import Document
 from md_studio.core.exceptions import MdStudioError
-from md_studio.readers.epub import read_epub
 
 app = typer.Typer(help="Convert EPUB sources to Markdown.", no_args_is_help=True)
-
-_READERS = MappingProxyType({".epub": read_epub})
 
 
 def _fail(message: str) -> typer.Exit:
     """Print *message* to stderr and return the exit signal to raise."""
     typer.echo(f"Error: {message}", err=True)
     return typer.Exit(code=1)
-
-
-def _read(source: Path) -> Document:
-    """Read *source* with the reader registered for its suffix."""
-    reader = _READERS.get(source.suffix.lower())
-    if reader is None:
-        supported = ", ".join(sorted(_READERS))
-        raise _fail(f"Unsupported source type {source.suffix!r}; supported: {supported}")
-    return reader(source)
 
 
 def _split_names(raw: str | None) -> list[str] | None:
@@ -73,7 +60,7 @@ def main() -> None:
 
 @app.command()
 def convert(  # noqa: WPS211 -- one parameter per CLI option
-    source: Annotated[Path, typer.Argument(help="Source file to convert.")],
+    source: Annotated[str, typer.Argument(help="Source file, URL or arXiv id to convert.")],
     output: Annotated[
         Path | None,
         typer.Option("-o", "--output", help="Destination .md path (default: next to source)."),
@@ -90,28 +77,32 @@ def convert(  # noqa: WPS211 -- one parameter per CLI option
         str | None,
         typer.Option("--vault", envvar=VAULT_ENV, help="Obsidian vault directory."),
     ] = None,
+    arxiv_id: Annotated[
+        str | None,
+        typer.Option("--arxiv-id", help="Treat the source as this arXiv paper (id or URL)."),
+    ] = None,
 ) -> None:
     """Convert SOURCE to a Markdown file or an Obsidian note."""
-    extensions = _split_names(ext)
+    job = _guarded(lambda: sources.prepare(source, arxiv_id, _split_names(ext)))
     if sink is SinkChoice.VAULT:
         vault_sink = _guarded(lambda: open_vault_sink(vault, output=output, force=force))
         outcome = _guarded(
             lambda: convert_to_vault(
-                _read(source), source=source, sink=vault_sink, extensions=extensions
+                job.document(), source=job.origin, sink=vault_sink, extensions=job.extensions
             )
         )
         typer.echo(f"Wrote {outcome[0]}")
-        report_conversion(outcome[1], extensions, to_vault=True)
+        report_conversion(outcome[1], job.extensions, to_vault=True)
         return
-    dest = output or source.with_suffix(".md")
-    if _same_file(source, dest):
+    dest = output or job.origin.with_suffix(".md")
+    if job.plan is None and _same_file(job.origin, dest):
         raise _fail(f"Output path is the source file: {source}")
     done = _guarded(
         lambda: convert_to_file(
-            _read(source), source=source, dest=dest, extensions=extensions, force=force
+            job.document(), source=job.origin, dest=dest, extensions=job.extensions, force=force
         )
     )
     typer.echo(f"Wrote {done[0]}")
     if done[1] is not None:
         typer.echo(f"Wrote heading audit {done[1]}")
-    report_conversion(done[2], extensions)
+    report_conversion(done[2], job.extensions)

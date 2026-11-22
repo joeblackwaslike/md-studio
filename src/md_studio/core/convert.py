@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from md_studio.core import assemble, frontmatter, ir
 from md_studio.core.document import Document
+from md_studio.core.exceptions import ReadError
 from md_studio.core.extensions import ExtCtx, MarkdownExtension, pipeline
 from md_studio.core.extensions.audit import PromotionRecord
 from md_studio.core.render import Renderer
@@ -64,9 +65,23 @@ def convert(
         When an *extra* key is invalid or collides with a reserved key.
     OffsetOverflowError
         When a chapter offset exceeds the fixed front-matter field width.
+    ReadError
+        When the document nests so deeply that extraction or rendering would recurse past
+        the interpreter limit.
 
     """
-    document, markdown_extensions = _fix_source(document, extensions or [])
+    try:
+        return _convert(document, extensions or [], extra)
+    except RecursionError:
+        raise ReadError("Document nests too deeply") from None
+
+
+def _convert(
+    document: Document,
+    extensions: list[str],
+    extra: Mapping[str, str | list[str]] | None,
+) -> RenderedMarkdown:
+    document, markdown_extensions = _fix_source(document, extensions)
     meta, chapters = assemble.assemble(document)
     chapters, ctx = _apply_extensions(meta, chapters, markdown_extensions, document.stylesheet)
     return _render(
@@ -76,6 +91,7 @@ def convert(
         tuple(ctx.audit),
         _notes(document, markdown_extensions, ctx),
         has_math=document.has_math,
+        embed_images=document.embed_images,
     )
 
 
@@ -94,9 +110,10 @@ def _render(  # noqa: WPS211 -- one render step; each argument is a distinct pip
     notes: tuple[str, ...],
     *,
     has_math: bool,
+    embed_images: bool,
 ) -> RenderedMarkdown:
     """Render *chapters* and build the two-pass front matter around the body."""
-    rendered = Renderer(has_math=has_math).render(chapters)
+    rendered = Renderer(has_math=has_math, embed_images=embed_images).render(chapters)
     front_matter, ranges = frontmatter.build(
         meta,
         [chapter.title for chapter in chapters],

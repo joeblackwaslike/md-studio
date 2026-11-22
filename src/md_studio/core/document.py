@@ -41,4 +41,5 @@ class Document:
     chapters: tuple[SourceChapter, ...] = field(default_factory=tuple)
     stylesheet: str = ""
     has_math: bool = False
+    embed_images: bool = False
     warnings: tuple[str, ...] = ()

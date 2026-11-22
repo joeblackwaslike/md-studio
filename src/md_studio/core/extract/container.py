@@ -15,8 +15,10 @@ from md_studio.core.extract.normalize import trim_inlines
 from md_studio.core.extract.tags import (
     HEADING_TAGS,
     LIST_TAGS,
+    MATH_TEX_ATTR,
     SINGLE_BLOCK_TAGS,
     TRANSPARENT_TAGS,
+    is_display_math,
     localname,
     meta,
 )
@@ -34,7 +36,11 @@ def _is_block_tag(tag: str) -> bool:
 
 def _starts_block(child: html.HtmlElement, tag: str) -> bool:  # type: ignore[no-any-unimported]
     """Return ``True`` when *child* begins a new block (vs. loose inline content)."""
-    return bool(tag and _is_block_tag(tag)) or epub_types.is_footnote_def(child)
+    return (
+        bool(tag and _is_block_tag(tag))
+        or is_display_math(child)
+        or epub_types.is_footnote_def(child)
+    )
 
 
 def _flush_inline(pending: list[ir.Inline], source_meta: ir.Meta, blocks: list[ir.Block]) -> None:
@@ -43,6 +49,13 @@ def _flush_inline(pending: list[ir.Inline], source_meta: ir.Meta, blocks: list[i
     pending.clear()
     if children:
         blocks.append(ir.Paragraph(children, source_meta))
+
+
+def _convert_child(child: html.HtmlElement) -> list[ir.Block]:  # type: ignore[no-any-unimported]
+    """Convert a block-starting child, treating a stand-alone ``md-math`` as display math."""
+    if is_display_math(child):
+        return [ir.MathBlock(child.get(MATH_TEX_ATTR, ""))]
+    return block_nodes.convert_block(child)
 
 
 def blocks_from_container(  # type: ignore[no-any-unimported]
@@ -59,7 +72,7 @@ def blocks_from_container(  # type: ignore[no-any-unimported]
         tag = localname(child)
         if _starts_block(child, tag):
             _flush_inline(pending, source_meta, blocks)
-            blocks.extend(block_nodes.convert_block(child))
+            blocks.extend(_convert_child(child))
         elif tag:
             pending.extend(convert_inline_child(child))
         if child.tail:

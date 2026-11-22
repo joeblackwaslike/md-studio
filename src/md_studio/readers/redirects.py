@@ -22,7 +22,10 @@ def _send(client: httpx.Client, url: str, deadline: Deadline) -> httpx.Response:
         headers={"Accept-Encoding": "gzip, deflate"},
         timeout=httpx.Timeout(budget),
     )
-    response = client.send(request, stream=True)
+    try:
+        response = client.send(request, stream=True)
+    except UnicodeError:
+        raise ReadError("Invalid redirect target") from None
     try:
         deadline.check()
     except ReadError:
@@ -73,7 +76,7 @@ def open_final(
     with httpx.Client(follow_redirects=False, transport=transport) as client:
         watchdog = deadline.watch(client.close)
         try:
-            with closing(_final(client, url, deadline)) as response:
+            with deadline.activate(), closing(_final(client, url, deadline)) as response:
                 yield response
         finally:
             watchdog.cancel()

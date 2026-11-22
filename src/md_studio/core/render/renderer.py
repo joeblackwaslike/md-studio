@@ -10,8 +10,9 @@ size is added later (see ``frontmatter``).
 from md_studio.core import ir
 from md_studio.core.headings import normalize_ws, text_of_inlines, titles_match
 from md_studio.core.render.blocks import render_block_string
-from md_studio.core.render.escaping import dollar_escaping, escape_dollars
+from md_studio.core.render.escaping import escape_dollars
 from md_studio.core.render.offsets import ChapterOffset, RenderResult
+from md_studio.core.render.options import render_options
 
 _BLANK_LINE_NEWLINES = 2
 
@@ -62,15 +63,20 @@ class _Buffer:
 class Renderer:
     """Accumulates the Markdown body and records per-chapter start offsets."""
 
-    def __init__(self, *, has_math: bool = False) -> None:
-        """Initialise an empty buffer; *has_math* makes prose ``$`` render escaped."""
+    def __init__(self, *, has_math: bool = False, embed_images: bool = False) -> None:
+        """Initialise an empty buffer.
+
+        *has_math* makes prose ``$`` render escaped; *embed_images* renders images as
+        ``![alt](src)`` instead of their alt text.
+        """
         self._has_math = has_math
+        self._embed_images = embed_images
         self._buffer = _Buffer()
         self._offsets: list[ChapterOffset] = []
 
     def render(self, chapters: tuple[ir.ChapterIR, ...]) -> RenderResult:
         """Render all *chapters* and return the body plus start offsets."""
-        with dollar_escaping(enabled=self._has_math):
+        with render_options(escape_dollars=self._has_math, embed_images=self._embed_images):
             for chapter in chapters:
                 self._start_chapter(chapter.title)
                 self._render_body(chapter)
