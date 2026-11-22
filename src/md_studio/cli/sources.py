@@ -1,5 +1,6 @@
 """Choose how a ``convert`` source is read: by an extractor's plan, or as a local file."""
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -10,9 +11,13 @@ from md_studio.core.extensions import pipeline
 from md_studio.extractors import ExtractionPlan, Extractor, resolve_extractor
 from md_studio.extractors.arxiv import ArxivExtractor
 from md_studio.readers.epub import read_epub
+from md_studio.readers.pdf import read_pdf
 from md_studio.readers.urls import display_url
 
-_READERS = MappingProxyType({".epub": read_epub})
+_READERS: Mapping[str, Callable[[Path], Document]] = MappingProxyType({
+    ".epub": read_epub,
+    ".pdf": read_pdf,
+})
 
 
 @dataclass(frozen=True, slots=True)
