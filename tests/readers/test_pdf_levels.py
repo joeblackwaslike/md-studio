@@ -2,7 +2,7 @@
 
 from types import MappingProxyType
 
-from md_studio.readers.pdf_levels import heading_level, outline_key
+from md_studio.readers.pdf_levels import heading_level, leading_unmatched, outline_key
 
 OUTLINE = MappingProxyType({
     outline_key("Introduction"): 1,
@@ -25,3 +25,14 @@ def test_without_an_outline_every_heading_is_level_one() -> None:
 
 def test_numbering_is_only_stripped_at_the_start() -> None:
     assert outline_key("A Survey of 3.5 Models") == "a survey of 3.5 models"
+
+
+def test_headings_before_the_first_outline_match_are_leading() -> None:
+    texts = ["Paper Title", "Abstract", "1 Introduction", "References"]
+
+    assert leading_unmatched(texts, OUTLINE) == 2
+
+
+def test_no_outline_or_no_match_has_no_leading_headings() -> None:
+    assert leading_unmatched(["A", "B"], {}) == 0
+    assert leading_unmatched(["A", "B"], OUTLINE) == 0

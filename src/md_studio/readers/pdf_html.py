@@ -22,7 +22,7 @@ from docling_core.types.doc.items.text import (
 )
 from docling_core.types.doc.labels import DocItemLabel
 
-from md_studio.readers.pdf_levels import heading_level
+from md_studio.readers.pdf_levels import heading_level, leading_unmatched
 
 _RUNNING = frozenset((DocItemLabel.PAGE_HEADER, DocItemLabel.PAGE_FOOTER))
 
@@ -32,6 +32,7 @@ class _Context:
     document: DoclingDocument
     outline: Mapping[str, int]
     images: Path
+    front: frozenset[str] = frozenset()
 
 
 class _Entry(NamedTuple):
@@ -84,9 +85,15 @@ def _formula(node: FormulaItem, page: int, ctx: _Context) -> str:
     return f"<md-math {attrs}></md-math>"
 
 
+def _level(node: SectionHeaderItem | TitleItem, ctx: _Context) -> int:
+    if node.self_ref in ctx.front:
+        return 1
+    return heading_level(node.text, ctx.outline)
+
+
 @_block.register
 def _heading(node: SectionHeaderItem | TitleItem, page: int, ctx: _Context) -> str:
-    name = f"h{heading_level(node.text, ctx.outline)}"
+    name = f"h{_level(node, ctx)}"
     return _tag(name, page, escape(node.text))
 
 
@@ -123,11 +130,21 @@ def _body(entries: Iterable[_Entry], ctx: _Context) -> str:
     return "".join(_render(pair, ctx) for pair in groupby(entries, _is_list))
 
 
+def _front(entries: list[_Entry], outline: Mapping[str, int]) -> frozenset[str]:
+    headings = [
+        entry.node for entry in entries if isinstance(entry.node, SectionHeaderItem | TitleItem)
+    ]
+    count = leading_unmatched([heading.text for heading in headings], outline)
+    return frozenset(heading.self_ref for heading in headings[:count])
+
+
 def document_html(document: DoclingDocument, outline: Mapping[str, int], images_dir: Path) -> str:
     """Return *document* as HTML, dropping running headers and footers.
 
-    Headings take their level from *outline*, text blocks keep their reading order, and list
-    items are grouped into lists. Code blocks arrive from Docling without indentation.
+    Headings take their level from *outline*, except those before the first outline match,
+    which are level 1. Text blocks keep their reading order, and list items are grouped into
+    lists. Code blocks arrive from Docling without indentation.
     """
-    body = _body(_entries(document), _Context(document, outline, images_dir))
+    entries = list(_entries(document))
+    body = _body(entries, _Context(document, outline, images_dir, _front(entries, outline)))
     return f"<html><body>{body}</body></html>"
