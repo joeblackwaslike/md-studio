@@ -687,6 +687,95 @@ def test_accept_encoding_advertises_only_supported_codings() -> None:
     assert recorder.accept_encoding == ["gzip, deflate"]
 
 
+class _Pieces(httpx.SyncByteStream):
+    def __init__(self, body: bytes, size: int, lead_empty: int = 0) -> None:
+        self._parts = [
+            *itertools.repeat(b"", lead_empty),
+            *(body[at : at + size] for at in range(0, len(body), size)),
+        ]
+
+    def __iter__(self) -> Iterator[bytes]:
+        return iter(self._parts)
+
+
+def _delivered(body: bytes, encoding: str, size: int, lead_empty: int = 0) -> httpx.MockTransport:
+    return httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            stream=_Pieces(body, size, lead_empty),
+            headers={"content-encoding": encoding},
+        ),
+    )
+
+
+def _raw_deflate(payload: bytes) -> bytes:
+    compressor = zlib.compressobj(wbits=-15)
+    return compressor.compress(payload) + compressor.flush()
+
+
+@pytest.mark.parametrize("lead_empty", [0, 2])
+@pytest.mark.parametrize(
+    ("encoding", "body"),
+    [
+        ("deflate", zlib.compress(PAGE.encode())),
+        ("deflate", _raw_deflate(PAGE.encode())),
+        ("gzip", gzip.compress(PAGE.encode())),
+    ],
+)
+def test_one_byte_pieces_decode_for_every_coding(
+    encoding: str, body: bytes, lead_empty: int
+) -> None:
+    transport = _delivered(body, encoding, 1, lead_empty)
+
+    assert read_html("https://example.com/p", transport=transport).metadata.title == "Hello"
+
+
+def test_truncated_gzip_body_is_rejected() -> None:
+    cut = gzip.compress(PAGE.encode())[:-10]
+
+    with pytest.raises(ReadError, match="truncated"):
+        read_html("https://example.com/t", transport=_delivered(cut, "gzip", 1000))
+
+
+def test_truncated_deflate_body_is_rejected() -> None:
+    cut = zlib.compress(PAGE.encode())[:-6]
+
+    with pytest.raises(ReadError, match="truncated"):
+        read_html("https://example.com/t", transport=_delivered(cut, "deflate", 1000))
+
+
+def test_single_byte_compressed_body_is_rejected_as_truncated() -> None:
+    with pytest.raises(ReadError, match="truncated"):
+        read_html("https://example.com/t", transport=_delivered(b"\x1f", "gzip", 1))
+
+
+def test_output_filling_the_step_boundary_is_not_lost() -> None:
+    size = 65_536 * 2
+    page = b"<p>".ljust(size, b"x")
+
+    document = read_html(
+        "https://example.com/s", transport=_delivered(gzip.compress(page), "gzip", 10**6)
+    )
+
+    assert len(_text(document).strip()) == size - len("<p>")
+
+
+def test_trailing_bytes_after_the_stream_are_ignored() -> None:
+    body = b"".join([gzip.compress(PAGE.encode()), b"garbage"])
+
+    document = read_html("https://example.com/g", transport=_delivered(body, "gzip", 1000))
+
+    assert document.metadata.title == "Hello"
+
+
+def test_only_the_first_gzip_member_is_decoded() -> None:
+    body = b"".join([gzip.compress(PAGE.encode()), gzip.compress(b"<title>Second</title>")])
+
+    document = read_html("https://example.com/g", transport=_delivered(body, "gzip", 1000))
+
+    assert document.metadata.title == "Hello"
+
+
 class _Blocking(httpx.BaseTransport):
     def __init__(self) -> None:
         self.release = threading.Event()
