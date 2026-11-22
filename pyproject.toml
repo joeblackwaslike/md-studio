@@ -25,6 +25,9 @@ pdf = ["docling>=2.151"]
 [project.scripts]
 md-studio = "md_studio.cli:app"
 
+[project.entry-points."md_studio.extensions"]
+arxiv-latexml = "md_studio.extractors.arxiv_latexml:LatexmlFix"
+
 [project.urls]
 "Bug Tracker" = "https://github.com/joeblackwaslike/md-studio/issues"
 Homepage = "https://github.com/joeblackwaslike/md-studio"
