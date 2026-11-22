@@ -32,5 +32,12 @@ class CodeBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class MathBlock:
+    """Display TeX math, rendered as a ``$$`` fenced block and never escaped."""
+
+    tex: str
+
+
+@dataclass(frozen=True, slots=True)
 class HorizontalRule:
     """A thematic break (``<hr/>``)."""

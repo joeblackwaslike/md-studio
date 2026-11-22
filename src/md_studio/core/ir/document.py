@@ -6,6 +6,7 @@ from md_studio.core.ir.block import (
     CodeBlock,
     Heading,
     HorizontalRule,
+    MathBlock,
     Paragraph,
 )
 from md_studio.core.ir.containers import BlockQuote, ListBlock
@@ -20,7 +21,7 @@ class FootnoteDef:
     children: tuple["Block", ...]
 
 
-_TextBlock = Paragraph | Heading | CodeBlock | HorizontalRule
+_TextBlock = Paragraph | Heading | CodeBlock | MathBlock | HorizontalRule
 _ContainerBlock = BlockQuote | ListBlock | Table | FootnoteDef
 Block = _TextBlock | _ContainerBlock
 

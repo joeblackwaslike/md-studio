@@ -5,6 +5,7 @@ the wemake-python-styleguide method/complexity budgets.
 """
 
 import re
+from types import MappingProxyType
 
 from md_studio.core import ir
 
@@ -22,16 +23,19 @@ def text_of_inlines(nodes: tuple[ir.Inline, ...]) -> str:
     return "".join(_inline_text(node) for node in nodes)
 
 
+_GAP_TEXT: MappingProxyType[type, str] = MappingProxyType({ir.LineBreak: " ", ir.FootnoteRef: ""})
+
+
 def _inline_text(node: ir.Inline) -> str:
     """Return the plain text of a single inline node."""
     if isinstance(node, (ir.Text, ir.CodeSpan)):
         return node.value
+    if isinstance(node, ir.Math):
+        return node.tex
     if isinstance(node, ir.Image):
         return node.alt
-    if isinstance(node, ir.LineBreak):
-        return " "
-    if isinstance(node, ir.FootnoteRef):
-        return ""
+    if isinstance(node, (ir.LineBreak, ir.FootnoteRef)):
+        return _GAP_TEXT[type(node)]
     return text_of_inlines(node.children)
 
 

@@ -1004,6 +1004,7 @@ name = "md-studio"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "lxml" },
 ]
 
@@ -1032,6 +1033,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "docling", marker = "extra == 'pdf'", specifier = ">=2.151" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "lxml", specifier = ">=5" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.7" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12" },

@@ -12,8 +12,8 @@ lint:
 typecheck:
     @uv run mypy
 
-test:
-    @TERM=dumb uv run python -m pytest -p no:faulthandler --no-header
+test *paths:
+    @TERM=dumb uv run python -m pytest -p no:faulthandler --no-header {{paths}}
 
 build:
     @rm -rf dist

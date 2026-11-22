@@ -14,6 +14,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "httpx>=0.27",
     "lxml>=5",
 ]
 
@@ -160,6 +161,7 @@ max-complexity = 24
     "D102",
     "D103",
     "S101",
+    "S311",
     "S105",
     "S108",
     "S404",

@@ -5,11 +5,15 @@ blocks), so :mod:`md_studio.core.render.lists` is imported as a module (not by
 name) so the circular import between blocks and lists resolves at call time.
 """
 
+from collections.abc import Callable
+from types import MappingProxyType
+
 from md_studio.core import ir
 from md_studio.core.headings import shift_level
 from md_studio.core.render import lists
 from md_studio.core.render.escaping import fence_for
 from md_studio.core.render.inlines import render_inlines
+from md_studio.core.render.math import block_math
 from md_studio.core.render.tables import render_table
 
 _QUOTE_PREFIX = "> "
@@ -32,16 +36,20 @@ def _render_code_block(block: ir.CodeBlock) -> str:
     return f"{fence}{block.language}\n{block.code}\n{fence}"
 
 
+_LEAF_BLOCKS: MappingProxyType[type, Callable[..., str]] = MappingProxyType({
+    ir.Heading: _render_heading,
+    ir.Paragraph: lambda block: render_inlines(block.children),
+    ir.CodeBlock: _render_code_block,
+    ir.MathBlock: lambda block: block_math(block.tex),
+    ir.Table: render_table,
+})
+
+
 def render_block_string(block: ir.Block) -> str:
     """Render a block to its string form (no surrounding blank lines)."""
-    if isinstance(block, ir.Heading):
-        return _render_heading(block)
-    if isinstance(block, ir.Paragraph):
-        return render_inlines(block.children)
-    if isinstance(block, ir.CodeBlock):
-        return _render_code_block(block)
-    if isinstance(block, ir.Table):
-        return render_table(block)
+    leaf = _LEAF_BLOCKS.get(type(block))
+    if leaf is not None:
+        return leaf(block)
     return _render_nested(block)
 
 

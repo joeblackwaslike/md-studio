@@ -232,7 +232,7 @@ _FUZZ_TOKENS = (
 
 
 def test_random_token_streams_finish_fast_and_never_raise() -> None:
-    rng = random.Random(0)  # noqa: S311 -- seeded fuzz, not security
+    rng = random.Random(0)
     for _ in range(25):
         stylesheet = "".join(rng.choices(_FUZZ_TOKENS, k=40_000))[:131_072]
         started = time.perf_counter()

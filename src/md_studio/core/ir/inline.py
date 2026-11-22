@@ -41,6 +41,13 @@ class Strikethrough:
 
 
 @dataclass(frozen=True, slots=True)
+class Math:
+    """Inline TeX math, rendered ``$tex$`` and never escaped."""
+
+    tex: str
+
+
+@dataclass(frozen=True, slots=True)
 class Strong:
     """Strong inline content (``<strong>``/``<b>``)."""
 

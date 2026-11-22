@@ -1,15 +1,43 @@
 """Markdown text escaping and backtick-fence escalation helpers."""
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 _BACKTICK_RUN_RE = re.compile(r"`+")
 _MIN_FENCE = 3
 _BACKTICK = "`"
+_DOLLAR = "$"
+_ESCAPE_DOLLARS: ContextVar[bool] = ContextVar("escape_dollars", default=False)
+
+
+@contextmanager
+def dollar_escaping(*, enabled: bool) -> Iterator[None]:
+    """Escape ``$`` in prose for the duration of the block when *enabled*."""
+    token = _ESCAPE_DOLLARS.set(enabled)
+    try:
+        yield
+    finally:
+        _ESCAPE_DOLLARS.reset(token)
+
+
+def escape_dollars(text: str) -> str:
+    """Escape ``$`` only, and only while dollar escaping is enabled."""
+    if _ESCAPE_DOLLARS.get():
+        return text.replace(_DOLLAR, r"\$")
+    return text
 
 
 def escape_text(text: str) -> str:
-    """Escape the few characters that would otherwise break inline Markdown."""
-    return text.replace("\\", r"\\").replace(_BACKTICK, r"\`")
+    """Escape the few characters that would otherwise break inline Markdown.
+
+    ``$`` is escaped too, but only inside :meth:`Renderer.render` of a math document.
+    """
+    escaped = text.replace("\\", r"\\").replace(_BACKTICK, r"\`")
+    if _ESCAPE_DOLLARS.get():
+        return escaped.replace(_DOLLAR, r"\$")
+    return escaped
 
 
 def _longest_backtick_run(text: str) -> int:

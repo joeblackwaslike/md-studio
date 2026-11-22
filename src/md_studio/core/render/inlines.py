@@ -13,6 +13,7 @@ _LEAF_RENDERERS: MappingProxyType[type, Callable[..., str]] = MappingProxyType({
     ir.Text: leaves.render_text,
     ir.CodeSpan: leaves.render_code_span,
     ir.Image: leaves.render_image,
+    ir.Math: leaves.render_math,
     ir.LineBreak: leaves.render_line_break,
     ir.FootnoteRef: leaves.render_footnote_ref,
 })

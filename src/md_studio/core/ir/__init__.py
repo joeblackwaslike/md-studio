@@ -12,6 +12,7 @@ from md_studio.core.ir.block import (
     CodeBlock,
     Heading,
     HorizontalRule,
+    MathBlock,
     Paragraph,
 )
 from md_studio.core.ir.book import BookMeta
@@ -21,6 +22,7 @@ from md_studio.core.ir.inline import (
     CodeSpan,
     Emphasis,
     LineBreak,
+    Math,
     Strikethrough,
     Strong,
     Text,
@@ -47,6 +49,8 @@ __all__ = [
     "Link",
     "ListBlock",
     "ListItem",
+    "Math",
+    "MathBlock",
     "Meta",
     "Paragraph",
     "Strikethrough",
