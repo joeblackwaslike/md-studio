@@ -11,10 +11,11 @@ from md_studio.core.document import Document, DocumentMetadata, SourceChapter
 from md_studio.core.exceptions import ReadError
 from md_studio.readers.source import load_source
 
-ChapterSplitter = Callable[[lxml_html.HtmlElement], list[SourceChapter]]  # type: ignore[no-any-unimported]
+type HtmlElement = lxml_html.HtmlElement  # type: ignore[no-any-unimported]
+ChapterSplitter = Callable[[HtmlElement], list[SourceChapter]]
 
 
-def _parse(raw: bytes, name: str) -> etree._Element:  # type: ignore[no-any-unimported]
+def _parse(raw: bytes, name: str) -> HtmlElement:
     parser = lxml_html.HTMLParser(no_network=True, remove_comments=True)
     try:
         root = lxml_html.document_fromstring(raw, parser=parser)
@@ -23,7 +24,7 @@ def _parse(raw: bytes, name: str) -> etree._Element:  # type: ignore[no-any-unim
     return root
 
 
-def _split(root: etree._Element, splitter: ChapterSplitter) -> list[SourceChapter]:  # type: ignore[no-any-unimported]
+def _split(root: HtmlElement, splitter: ChapterSplitter) -> list[SourceChapter]:
     try:
         chapters = splitter(root)
     except Exception as exc:
@@ -33,7 +34,7 @@ def _split(root: etree._Element, splitter: ChapterSplitter) -> list[SourceChapte
     return chapters
 
 
-def _single_chapter(root: lxml_html.HtmlElement, title: str, name: str) -> SourceChapter:  # type: ignore[no-any-unimported]
+def _single_chapter(root: HtmlElement, title: str, name: str) -> SourceChapter:
     body = root.find("body")
     return SourceChapter(
         title or Path(name).stem,
@@ -42,8 +43,8 @@ def _single_chapter(root: lxml_html.HtmlElement, title: str, name: str) -> Sourc
     )
 
 
-def _chapters(  # type: ignore[no-any-unimported]
-    root: lxml_html.HtmlElement,
+def _chapters(
+    root: HtmlElement,
     title: str,
     name: str,
     splitter: ChapterSplitter | None,

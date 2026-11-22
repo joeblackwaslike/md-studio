@@ -1,5 +1,7 @@
 """Tests for the HTML reader and the extractor protocol."""
 
+import gzip
+import itertools
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,7 +12,7 @@ from lxml import etree
 from md_studio.core.document import Document, SourceChapter
 from md_studio.core.exceptions import ReadError
 from md_studio.extractors import ExtractionPlan, resolve_extractor
-from md_studio.readers.html import read_html
+from md_studio.readers.html import HtmlElement, read_html
 from md_studio.readers.source import MAX_BYTES
 
 PAGE = "<html><head><title>Hello</title></head><body><h1>Hi</h1><p>text</p></body></html>"
@@ -39,11 +41,11 @@ def _hop(request: httpx.Request) -> httpx.Response:
     return httpx.Response(302, headers={"location": "ftp://example.com/a"})
 
 
-def _two_chapters(root: etree._Element) -> list[SourceChapter]:  # type: ignore[no-any-unimported]
+def _two_chapters(root: HtmlElement) -> list[SourceChapter]:  # type: ignore[no-any-unimported]
     return [SourceChapter("A", root), SourceChapter("B", root)]
 
 
-def _failing(root: etree._Element) -> list[SourceChapter]:  # type: ignore[no-any-unimported]
+def _failing(root: HtmlElement) -> list[SourceChapter]:  # type: ignore[no-any-unimported]
     raise ValueError("bad")
 
 
@@ -174,3 +176,77 @@ def test_first_matching_extractor_wins() -> None:
 
 def test_no_matching_extractor_returns_none() -> None:
     assert resolve_extractor("https://a/x", [_Extractor("https://b", "no")]) is None
+
+
+class _Chain:
+    def __init__(self, hops: int) -> None:
+        self._hops = hops
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        step = int(request.url.path.strip("/") or 0)
+        if step >= self._hops:
+            return httpx.Response(200, content=PAGE.encode())
+        return httpx.Response(302, headers={"location": f"https://example.com/{step + 1}"})
+
+
+def _chain(hops: int) -> httpx.MockTransport:
+    return httpx.MockTransport(_Chain(hops))
+
+
+def test_three_redirect_hops_succeed() -> None:
+    document = read_html("https://example.com/0", transport=_chain(3))
+
+    assert document.metadata.title == "Hello"
+
+
+def test_four_redirect_hops_rejected() -> None:
+    with pytest.raises(ReadError):
+        read_html("https://example.com/0", transport=_chain(4))
+
+
+def test_body_of_exactly_max_bytes_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("md_studio.readers.source.MAX_BYTES", 100)
+    body = b"<p>".ljust(100, b"x")
+
+    assert read_html("https://example.com/a", transport=_fixed(body)).chapters
+
+
+def test_body_one_byte_over_max_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("md_studio.readers.source.MAX_BYTES", 100)
+
+    with pytest.raises(ReadError, match="exceeds"):
+        read_html("https://example.com/a", transport=_fixed(b"<p>".ljust(101, b"x")))
+
+
+def test_gzip_bomb_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("md_studio.readers.source.MAX_BYTES", 1000)
+    packed = gzip.compress(b"<p>".ljust(50_000, b"x"))
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            content=packed,
+            headers={"content-encoding": "gzip"},
+        ),
+    )
+
+    with pytest.raises(ReadError, match="exceeds"):
+        read_html("https://example.com/a", transport=transport)
+
+
+def test_slow_drip_hits_total_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    ticks = itertools.count(step=10)
+    monkeypatch.setattr("md_studio.readers.source.time.monotonic", lambda: float(next(ticks)))
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=_Endless()))
+
+    with pytest.raises(ReadError, match="deadline"):
+        read_html("https://example.com/slow", transport=transport)
+
+
+def test_malformed_url_becomes_read_error() -> None:
+    with pytest.raises(ReadError):
+        read_html("http://[::1")
+
+
+def test_nul_byte_path_becomes_read_error() -> None:
+    with pytest.raises(ReadError):
+        read_html("a\x00b.html")
