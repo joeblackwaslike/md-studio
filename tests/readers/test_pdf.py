@@ -204,3 +204,11 @@ def test_old_style_id_falls_back_to_pdf() -> None:
 
     assert routes.paths == ["/html/hep-th/9901001", "/pdf/hep-th/9901001"]
     assert document.metadata.source_file == "https://arxiv.org/pdf/hep-th/9901001"
+
+
+def test_non_numeric_page_attributes_are_ignored(tmp_path: Path) -> None:
+    html = '<html><body><h1 data-page="abc">A</h1><p data-page="1.5">x</p><p data-page="2">y</p></body></html>'
+
+    document = read_pdf(_pdf(tmp_path), engine=_Stub(html))
+
+    assert [chapter.pages for chapter in document.chapters] == [(2, 2)]

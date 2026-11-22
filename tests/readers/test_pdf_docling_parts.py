@@ -19,6 +19,7 @@ from docling_core.types.doc.document import (
 )
 from docling_core.types.doc.labels import DocItemLabel
 
+from md_studio.readers.pdf_engines import DoclingEngine
 from md_studio.readers.pdf_html import document_html
 from md_studio.readers.pdf_outline import ensure_page_limit, outline_levels
 
@@ -56,6 +57,18 @@ def _numbered(doc: DoclingDocument) -> None:
     doc.add_list_item(text="two", enumerated=True, parent=group, prov=_prov(2))
 
 
+def _pictures(doc: DoclingDocument) -> None:
+    caption = doc.add_text(label=DocItemLabel.CAPTION, text="Figure 1 & more", prov=_prov(3))
+    doc.add_picture(caption=caption, prov=_prov(3))
+    doc.add_picture(prov=_prov(3))
+
+
+def _page_three(doc: DoclingDocument) -> None:
+    doc.add_formula(text="x^2", prov=_prov(3))
+    doc.add_formula(text="", prov=_prov(3))
+    _table(doc)
+
+
 def _document() -> DoclingDocument:
     doc = DoclingDocument(name="t")
     doc.add_text(label=DocItemLabel.PAGE_HEADER, text="Running head", prov=_prov(1))
@@ -63,9 +76,8 @@ def _document() -> DoclingDocument:
     doc.add_text(label=DocItemLabel.TEXT, text="a < b", prov=_prov(1))
     _numbered(doc)
     doc.add_code(text="x = 1", prov=_prov(2))
-    doc.add_formula(text="x^2", prov=_prov(3))
-    doc.add_formula(text="", prov=_prov(3))
-    _table(doc)
+    _page_three(doc)
+    _pictures(doc)
     doc.add_text(label=DocItemLabel.PAGE_FOOTER, text="Page 3", prov=_prov(3))
     return doc
 
@@ -79,6 +91,7 @@ def _document() -> DoclingDocument:
         '<pre data-page="2"><code>x = 1</code></pre>',
         '<md-math display="block" tex="x^2" data-page="3"></md-math>',
         '<table data-page="3">',
+        '<p data-page="3">Figure 1 &amp; more</p>',
     ],
 )
 def test_document_html_tags_blocks_with_their_page(fragment: str) -> None:
@@ -130,3 +143,19 @@ def test_page_limit_is_enforced_before_conversion(
 
     with pytest.raises(ReadError, match="1 pages; the limit is 0"):
         ensure_page_limit(pdf)
+
+
+def test_picture_without_a_caption_renders_nothing() -> None:
+    doc = DoclingDocument(name="t")
+    doc.add_picture(prov=_prov(1))
+
+    assert document_html(doc, {}) == "<html><body></body></html>"
+
+
+def test_engine_enforces_the_page_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pdf = tmp_path / "o.pdf"
+    pdf.write_bytes(OUTLINE_PDF)
+    monkeypatch.setattr(limits, "MAX_PAGES", 0)
+
+    with pytest.raises(ReadError, match="the limit is 0"):
+        DoclingEngine().to_html(pdf, tmp_path)
