@@ -33,7 +33,8 @@ class ChapterIR:
     ``title_is_fallback`` marks a title that is only a generated placeholder (the file
     stem or ``Chapter N``), which an extension may replace with a real heading. ``heading``,
     when set, is ready-made Markdown for the ``##`` line (a title with math in it), written
-    as is; ``title`` stays the plain text used for the front matter and for matching.
+    as is; ``title`` stays the plain text used for the front matter and for matching. ``pages``
+    is the first and last source page of the chapter, when the source has pages.
     """
 
     title: str
@@ -41,3 +42,4 @@ class ChapterIR:
     footnotes: tuple[FootnoteDef, ...] = ()
     title_is_fallback: bool = False
     heading: str = ""
+    pages: tuple[int, int] | None = None

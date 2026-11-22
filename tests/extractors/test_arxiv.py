@@ -423,7 +423,7 @@ def test_missing_html_is_a_clear_read_error() -> None:
     extractor = ArxivExtractor(_client(time, _Server(time, status=404)))
     plan = extractor.resolve("2606.24937")
 
-    with pytest.raises(ReadError, match=r"no HTML version of 2606\.24937"):
+    with pytest.raises(ReadError, match=r"no HTML or PDF version of 2606\.24937"):
         plan.reader(plan.source)
 
 

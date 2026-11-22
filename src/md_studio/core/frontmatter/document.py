@@ -90,13 +90,16 @@ def _header(meta: ir.BookMeta) -> list[str]:
 
 def _chapter_lines(chapter: ChapterRange) -> list[str]:
     """Render one chapter entry's YAML lines."""
-    return [
+    lines = [
         f"  - title: {yaml_inline_string(chapter.title)}",
         f"    start_line: {pad_number(chapter.start_line, chapter.title)}",
         f"    end_line: {pad_number(chapter.end_line, chapter.title)}",
         f"    start_byte: {pad_number(chapter.start_byte, chapter.title)}",
         f"    end_byte: {pad_number(chapter.end_byte, chapter.title)}",
     ]
+    if chapter.start_page is not None and chapter.end_page is not None:
+        lines.extend([f"    start_page: {chapter.start_page}", f"    end_page: {chapter.end_page}"])
+    return lines
 
 
 def render(

@@ -79,4 +79,5 @@ def _assemble_chapter(index: int, chapter: SourceChapter) -> ir.ChapterIR:
         footnotes=_namespace(notes, mapping),
         title_is_fallback=chapter.title_is_fallback or not chapter.title,
         heading=chapter.heading,
+        pages=chapter.pages,
     )

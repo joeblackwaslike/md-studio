@@ -15,11 +15,14 @@ class ChapterRange:
     end_line: int
     start_byte: int
     end_byte: int
+    start_page: int | None = None
+    end_page: int | None = None
 
 
 def _preliminary_range(title: str, offset: ChapterOffset) -> ChapterRange:
     """Build a single body-relative range (start == end) for one chapter."""
-    return ChapterRange(title, offset.line, offset.line, offset.byte, offset.byte)
+    first, last = offset.pages or (None, None)
+    return ChapterRange(title, offset.line, offset.line, offset.byte, offset.byte, first, last)
 
 
 def preliminary_ranges(
@@ -40,6 +43,17 @@ def _spans(starts: list[int], total: int) -> list[tuple[int, int]]:
     return list(zip(starts, ends, strict=True))
 
 
+def _range(
+    title: str,
+    offset: ChapterOffset,
+    line_span: tuple[int, int],
+    byte_span: tuple[int, int],
+) -> ChapterRange:
+    """Build the file-absolute range for one chapter from its line and byte spans."""
+    first, last = offset.pages or (None, None)
+    return ChapterRange(title, *line_span, *byte_span, first, last)
+
+
 def absolute_ranges(
     titles: list[str],
     offsets: list[ChapterOffset],
@@ -56,13 +70,5 @@ def absolute_ranges(
         [offset.byte + front_matter_bytes for offset in offsets],
         front_matter_bytes + len(body.encode("utf-8")) - 1,
     )
-    return [
-        ChapterRange(
-            title=title,
-            start_line=line_span[0],
-            end_line=line_span[1],
-            start_byte=byte_span[0],
-            end_byte=byte_span[1],
-        )
-        for title, line_span, byte_span in zip(titles, lines, bytes_, strict=True)
-    ]
+    paired = zip(titles, offsets, lines, bytes_, strict=True)
+    return [_range(*fields) for fields in paired]

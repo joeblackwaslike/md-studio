@@ -10,10 +10,11 @@ import httpx
 
 from md_studio.core.document import Document
 from md_studio.core.exceptions import FetchStatusError, ReadError
-from md_studio.extractors.arxiv_id import parse_arxiv_id
+from md_studio.extractors.arxiv_pdf import read_arxiv_pdf
 from md_studio.extractors.arxiv_policy import ForbiddenUrlError, check_url
 from md_studio.readers.deadline import extend_active
 from md_studio.readers.html import read_html
+from md_studio.readers.pdf_engines import PdfEngine
 
 _HOMEPAGE = "https://github.com/joeblackwaslike/md-studio"
 MIN_INTERVAL = 15.0
@@ -91,6 +92,8 @@ class ArxivClient:
         Optional httpx transport, used by tests to avoid the network.
     clock, sleep
         Time sources, replaceable in tests.
+    engine
+        PDF engine for papers without an HTML version; defaults to Docling.
     """
 
     def __init__(
@@ -100,8 +103,10 @@ class ArxivClient:
         transport: httpx.BaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        engine: PdfEngine | None = None,
     ) -> None:
         self.min_interval = min_interval
+        self._engine = engine
         self._reading = threading.Lock()
         self.transport: httpx.BaseTransport = _PoliteTransport(
             min_interval, transport, clock, sleep
@@ -112,14 +117,17 @@ class ArxivClient:
         check_url(url)
 
     def read(self, source: str, /) -> Document:
-        """Read the arXiv HTML page at *source* into a :class:`Document`.
+        """Read the arXiv paper at *source* into a :class:`Document`.
+
+        The HTML page is read when it exists, otherwise the PDF.
 
         Reads are serialized: a second caller blocks until the first read has finished.
 
         Raises
         ------
         ReadError
-            When the page does not exist, a hop leaves the allowed paths, or the fetch fails.
+            When neither the page nor the PDF exists, a hop leaves the allowed paths, or the
+            fetch fails.
         """
         self._check(source)
         with self._reading:
@@ -133,9 +141,7 @@ class ArxivClient:
         except FetchStatusError as error:
             if error.status != HTTPStatus.NOT_FOUND:
                 raise
-            paper = parse_arxiv_id(source) or "this paper"
-            msg = f"arXiv has no HTML version of {paper}; the PDF fallback is not available yet"
-            raise ReadError(msg) from None
+        return read_arxiv_pdf(source, self.transport, self._engine)
 
     def _check(self, source: str) -> None:
         try:
