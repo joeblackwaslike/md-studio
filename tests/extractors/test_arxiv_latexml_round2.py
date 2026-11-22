@@ -82,11 +82,11 @@ def _headingless(count: int, tmp_path: Path) -> Document:
 
 
 def test_anchors_stay_linear_when_a_section_heading_comes_last(tmp_path: Path) -> None:
-    assert_linear(lambda size: _heading_last(size, tmp_path), 250)
+    assert_linear(lambda size: _heading_last(size, tmp_path), 1500)
 
 
 def test_anchors_stay_linear_for_sections_with_no_heading_at_all(tmp_path: Path) -> None:
-    assert_linear(lambda size: _headingless(size, tmp_path), 250)
+    assert_linear(lambda size: _headingless(size, tmp_path), 1000)
 
 
 RUNS = 7

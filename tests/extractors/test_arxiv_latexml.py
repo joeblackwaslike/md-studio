@@ -335,8 +335,8 @@ def _synthetic_document(chapters: int, sections: int, tmp_path: Path) -> Documen
 
 
 def test_cost_grows_linearly_with_the_sections_of_one_chapter(tmp_path: Path) -> None:
-    assert_linear(lambda size: _synthetic_document(1, size, tmp_path), 40)
+    assert_linear(lambda size: _synthetic_document(1, size, tmp_path), 80)
 
 
 def test_cost_grows_linearly_with_the_number_of_chapters(tmp_path: Path) -> None:
-    assert_linear(lambda size: _synthetic_document(size, 5, tmp_path), 10)
+    assert_linear(lambda size: _synthetic_document(size, 5, tmp_path), 20)

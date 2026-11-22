@@ -95,7 +95,7 @@ def _many_document(count: int, tmp_path: Path) -> Document:
 
 
 def test_cost_stays_linear_with_many_nested_constructs(tmp_path: Path) -> None:
-    assert_linear(partial(_many_document, tmp_path=tmp_path), 60)
+    assert_linear(partial(_many_document, tmp_path=tmp_path), 300)
 
 
 def _interleaved(text: str, count: int) -> list[int]:
