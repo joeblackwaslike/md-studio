@@ -180,3 +180,30 @@ def test_reaching_the_class_limit_is_noted_once() -> None:
     assert [note for note in report.notes if "classes" in note] == [
         "more than 20000 classes; the rest were ignored"
     ]
+
+
+def _exhausted_class_budget() -> str:
+    return "".join(
+        f"{','.join(f'.c{rule}x{index}' for index in range(64))}{{font-size:1rem}}"
+        for rule in range(313)
+    )
+
+
+@pytest.mark.parametrize(
+    ("selector", "known"),
+    [
+        (".new, .c0x0", {"c0x0"}),
+        (".c0x0, .new, .c0x1", {"c0x0", "c0x1"}),
+        (".new, .other, .c0x0", {"c0x0"}),
+    ],
+)
+def test_a_refused_class_does_not_stop_known_classes_in_the_same_list(
+    selector: str, known: set[str]
+) -> None:
+    report = css_headings.classify_report(
+        f"{_exhausted_class_budget()}{selector}{{font-size:2rem}}"
+    )
+
+    assert set(report.levels) == known
+    assert "new" not in report.levels
+    assert any("classes" in note for note in report.notes)

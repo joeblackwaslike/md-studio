@@ -61,7 +61,8 @@ def _merge(found: Merged, selector: str, body: str) -> bool:
     """
     relevant = _relevant(body)
     names = _class_names(selector) if relevant else []
-    return not all(add_class(found, name, relevant, _MAX_CLASSES) for name in names)
+    accepted = [add_class(found, name, relevant, _MAX_CLASSES) for name in names]
+    return not all(accepted)
 
 
 def _rules(stylesheet: str, notes: list[str], dropped: list[int]) -> Iterator[css_scan.Rule]:
