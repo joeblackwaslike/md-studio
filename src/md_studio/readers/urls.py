@@ -25,5 +25,5 @@ def url_scheme(source: Path | str) -> str:
         return ""
     try:
         return urlsplit(source).scheme.lower()
-    except ValueError as exc:
-        raise ReadError("Malformed URL") from exc
+    except ValueError:
+        raise ReadError("Malformed URL") from None

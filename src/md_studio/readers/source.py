@@ -6,13 +6,13 @@ from pathlib import Path
 import httpx
 
 from md_studio.core.exceptions import ReadError
-from md_studio.readers.deadline import Deadline
+from md_studio.readers import limits
+from md_studio.readers.body import read_body
+from md_studio.readers.deadline import MESSAGE, Deadline
 from md_studio.readers.redirects import open_final
 from md_studio.readers.urls import display_url, url_scheme
 
-MAX_BYTES = 52_428_800
 _SCHEMES = ("http", "https")
-_TOO_BIG = "HTML source exceeds the size cap"
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,21 +24,7 @@ class LoadedSource:
     charset: str | None = None
 
 
-def _drain(response: httpx.Response, deadline: Deadline) -> bytes:
-    """Read the decoded body of *response*, enforcing the size cap and total deadline."""
-    declared = response.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_BYTES:
-        raise ReadError(_TOO_BIG)
-    payload = bytearray()
-    for piece in response.iter_bytes():
-        payload.extend(piece)
-        if len(payload) > MAX_BYTES:
-            raise ReadError(_TOO_BIG)
-        deadline.check()
-    return bytes(payload)
-
-
-def _failure(name: str, exc: httpx.HTTPError | httpx.InvalidURL) -> ReadError:
+def _failure(name: str, exc: httpx.HTTPError | httpx.InvalidURL | httpx.StreamError) -> ReadError:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return ReadError(f"Could not fetch {name}: HTTP {status}")
@@ -52,21 +38,23 @@ def _fetch(url: str, transport: httpx.BaseTransport | None) -> LoadedSource:
     try:
         with open_final(url, transport, deadline) as response:
             response.raise_for_status()
-            raw = _drain(response, deadline)
+            raw = read_body(response, deadline)
             return LoadedSource(raw, name, response.charset_encoding)
-    except (httpx.HTTPError, httpx.InvalidURL) as exc:
-        raise _failure(name, exc) from exc
+    except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as exc:
+        if deadline.expired:
+            raise ReadError(MESSAGE) from None
+        raise _failure(name, exc) from None
 
 
 def _read_file(path: Path) -> LoadedSource:
     """Read *path* with the same size cap as network fetches."""
     try:
         with path.open("rb") as stream:
-            payload = stream.read(MAX_BYTES + 1)
+            payload = stream.read(limits.MAX_BYTES + 1)
     except (OSError, ValueError) as exc:
         raise ReadError(f"Could not read {path}: {exc}") from exc
-    if len(payload) > MAX_BYTES:
-        raise ReadError(_TOO_BIG)
+    if len(payload) > limits.MAX_BYTES:
+        raise ReadError(limits.TOO_BIG)
     return LoadedSource(payload, path.name)
 
 

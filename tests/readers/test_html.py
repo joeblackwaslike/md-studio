@@ -1,7 +1,13 @@
 """Tests for the HTML reader and the extractor protocol."""
 
+import contextlib
 import gzip
 import itertools
+import threading
+import time
+import traceback
+import tracemalloc
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -19,7 +25,7 @@ UTF8_PAGE = "<html><body><p>café — ok</p></body></html>"
 
 
 def _fixed(body: bytes, status: int = 200) -> httpx.MockTransport:
-    return httpx.MockTransport(lambda request: httpx.Response(status, content=body))
+    return httpx.MockTransport(lambda request: httpx.Response(status, stream=_Raw(body)))
 
 
 def _write(tmp_path: Path, text: str = PAGE) -> Path:
@@ -48,6 +54,14 @@ def _failing(root: HtmlElement) -> list[SourceChapter]:  # type: ignore[no-any-u
     raise ValueError("bad")
 
 
+class _Raw(httpx.SyncByteStream):
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __iter__(self) -> Iterator[bytes]:
+        return iter([self._body])
+
+
 class _Endless(httpx.SyncByteStream):
     def __iter__(self) -> Iterator[bytes]:
         return itertools.repeat(b"x" * 10)
@@ -68,7 +82,7 @@ def _text(document: Document) -> str:
 
 
 def _small_cap(monkeypatch: pytest.MonkeyPatch, size: int = 100) -> None:
-    monkeypatch.setattr("md_studio.readers.source.MAX_BYTES", size)
+    monkeypatch.setattr("md_studio.readers.limits.MAX_BYTES", size)
 
 
 def test_local_html_becomes_single_chapter(tmp_path: Path) -> None:
@@ -195,7 +209,7 @@ class _Chain:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         step = int(request.url.path.strip("/") or 0)
         if step >= self._hops:
-            return httpx.Response(200, content=PAGE.encode())
+            return httpx.Response(200, stream=_Raw(PAGE.encode()))
         return httpx.Response(302, headers={"location": f"https://example.com/{step + 1}"})
 
 
@@ -234,7 +248,7 @@ def test_gzip_bomb_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
             200,
-            content=packed,
+            stream=_Raw(packed),
             headers={"content-encoding": "gzip"},
         ),
     )
@@ -298,7 +312,7 @@ def test_content_type_charset_is_honored() -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
             200,
-            content=body,
+            stream=_Raw(body),
             headers={"content-type": "text/html; charset=iso-8859-1"},
         ),
     )
@@ -389,7 +403,7 @@ def _with_header_charset(body: bytes, charset: str) -> httpx.MockTransport:
     return httpx.MockTransport(
         lambda request: httpx.Response(
             200,
-            content=body,
+            stream=_Raw(body),
             headers={"content-type": f"text/html; charset={charset}"},
         ),
     )
@@ -448,7 +462,7 @@ def _redirect_with_untouchable_body(request: httpx.Request) -> httpx.Response:
             headers={"location": "/final", "content-length": "1000"},
             stream=_Untouchable(),
         )
-    return httpx.Response(200, content=PAGE.encode())
+    return httpx.Response(200, stream=_Raw(PAGE.encode()))
 
 
 def test_redirect_body_is_never_read(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -468,7 +482,7 @@ class _Relative:
         self.seen.append(str(request.url))
         if request.url.path == "/docs/a":
             return httpx.Response(302, headers={"location": "../b/c.html?x=1"})
-        return httpx.Response(200, content=PAGE.encode())
+        return httpx.Response(200, stream=_Raw(PAGE.encode()))
 
 
 def test_relative_location_resolves_against_current_url() -> None:
@@ -502,7 +516,7 @@ class _Budget:
         if request.url.path == "/0":
             self.now += self._advance
             return httpx.Response(302, headers={"location": "/1"})
-        return httpx.Response(200, content=PAGE.encode())
+        return httpx.Response(200, stream=_Raw(PAGE.encode()))
 
     def clock(self) -> float:
         return float(self.now)
@@ -514,7 +528,7 @@ class _LateFinal:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self._budget.now += 31
-        return httpx.Response(200, content=PAGE.encode())
+        return httpx.Response(200, stream=_Raw(PAGE.encode()))
 
 
 def test_each_hop_gets_only_the_remaining_budget(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -542,3 +556,154 @@ def test_deadline_passed_when_headers_arrive_is_rejected(monkeypatch: pytest.Mon
 
     with pytest.raises(ReadError, match="deadline"):
         read_html("https://example.com/1", transport=httpx.MockTransport(_LateFinal(budget)))
+
+
+DECOYS = (
+    '<meta data-charset="iso-8859-1">',
+    '<meta name="description" content="Use charset=iso-8859-1">',
+    '<!-- <meta charset="iso-8859-1"> -->',
+    '<!--\n<meta charset="iso-8859-1">\n-->',
+)
+
+
+@pytest.mark.parametrize("decoy", DECOYS)
+def test_decoy_charset_text_does_not_override_utf8(decoy: str) -> None:
+    body = f"<html><head>{decoy}</head><body><p>café — ok</p></body></html>"
+
+    document = read_html("https://example.com/d", transport=_fixed(body.encode()))
+
+    assert "café — ok" in _text(document)
+
+
+def test_latin1_label_decodes_as_cp1252_via_header() -> None:
+    body = b"<html><body><p>\x93quoted\x94 \x80</p></body></html>"
+
+    document = read_html(
+        "https://example.com/w", transport=_with_header_charset(body, "iso-8859-1")
+    )
+
+    assert "\u201cquoted\u201d \u20ac" in _text(document)
+
+
+def test_latin1_label_decodes_as_cp1252_via_meta() -> None:
+    body = b'<html><head><meta charset="iso-8859-1"></head><body><p>\x93quoted\x94 \x80</p></body></html>'
+
+    document = read_html("https://example.com/w", transport=_fixed(body))
+
+    assert "\u201cquoted\u201d \u20ac" in _text(document)
+
+
+CRED_URL = "https://user:s3cr3tpw@example.com/a.html?token=tok3n"
+
+
+def _raise_with_url(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError(f"cannot reach {request.url}")
+
+
+def _failure_trace(transport: httpx.MockTransport) -> str:
+    try:
+        read_html(CRED_URL, transport=transport)
+    except ReadError as exc:
+        return "".join(traceback.format_exception(exc))
+    raise AssertionError("expected ReadError")
+
+
+@pytest.mark.parametrize(
+    "transport",
+    [_fixed(b"no", status=500), httpx.MockTransport(_raise_with_url)],
+)
+def test_traceback_does_not_leak_url_secrets(transport: httpx.MockTransport) -> None:
+    rendered = _failure_trace(transport)
+
+    assert "s3cr3tpw" not in rendered
+    assert "tok3n" not in rendered
+
+
+def _encoded(body: bytes, encoding: str | None) -> httpx.MockTransport:
+    headers = {} if encoding is None else {"content-encoding": encoding}
+    return httpx.MockTransport(
+        lambda request: httpx.Response(200, stream=_Raw(body), headers=headers)
+    )
+
+
+def test_single_gzip_body_is_decoded() -> None:
+    document = read_html(
+        "https://example.com/g", transport=_encoded(gzip.compress(PAGE.encode()), "gzip")
+    )
+
+    assert document.metadata.title == "Hello"
+
+
+def test_deflate_zlib_and_raw_bodies_are_decoded() -> None:
+    raw = zlib.compressobj(wbits=-15)
+    raw_body = raw.compress(PAGE.encode()) + raw.flush()
+
+    for body in (zlib.compress(PAGE.encode()), raw_body):
+        document = read_html("https://example.com/z", transport=_encoded(body, "deflate"))
+        assert document.metadata.title == "Hello"
+
+
+def test_identity_encoding_is_accepted() -> None:
+    document = read_html("https://example.com/i", transport=_encoded(PAGE.encode(), "identity"))
+
+    assert document.metadata.title == "Hello"
+
+
+@pytest.mark.parametrize("encoding", ["gzip, gzip", "br", "zstd", "compress", "gzip, br"])
+def test_unsupported_or_chained_encodings_rejected(encoding: str) -> None:
+    with pytest.raises(ReadError, match="content encoding"):
+        read_html("https://example.com/x", transport=_encoded(gzip.compress(b"<p>x"), encoding))
+
+
+def _peak_memory_reading(transport: httpx.MockTransport) -> int:
+    tracemalloc.start()
+    with contextlib.suppress(ReadError):
+        read_html("https://example.com/b", transport=transport)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return peak
+
+
+def test_gzip_bomb_never_materialises_past_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    _small_cap(monkeypatch, 1000)
+
+    assert _peak_memory_reading(_encoded(gzip.compress(bytes(50_000_000)), "gzip")) < 5_000_000
+
+
+class _Recorder:
+    def __init__(self) -> None:
+        self.accept_encoding: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.accept_encoding.append(request.headers["accept-encoding"])
+        return httpx.Response(200, stream=_Raw(PAGE.encode()))
+
+
+def test_accept_encoding_advertises_only_supported_codings() -> None:
+    recorder = _Recorder()
+
+    read_html("https://example.com/a", transport=httpx.MockTransport(recorder))
+
+    assert recorder.accept_encoding == ["gzip, deflate"]
+
+
+class _Blocking(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.release = threading.Event()
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.release.wait(5)
+        raise httpx.ReadError("connection closed")
+
+    def close(self) -> None:
+        self.release.set()
+
+
+def test_watchdog_cuts_off_a_blocked_read_at_the_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("md_studio.readers.deadline.DEADLINE_SECONDS", 0.2)
+    started = time.monotonic()
+
+    with pytest.raises(ReadError, match="total deadline"):
+        read_html("https://example.com/block", transport=_Blocking())
+
+    assert time.monotonic() - started < 3

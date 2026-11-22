@@ -16,7 +16,12 @@ _SCHEMES = ("http", "https")
 def _send(client: httpx.Client, url: str, deadline: Deadline) -> httpx.Response:
     """Open *url* with only the remaining time budget; the body stays unread."""
     deadline.check()
-    request = client.build_request("GET", url, timeout=httpx.Timeout(deadline.remaining()))
+    request = client.build_request(
+        "GET",
+        url,
+        headers={"Accept-Encoding": "gzip, deflate"},
+        timeout=httpx.Timeout(deadline.remaining()),
+    )
     response = client.send(request, stream=True)
     try:
         deadline.check()
@@ -37,6 +42,19 @@ def _redirect_target(response: httpx.Response) -> str | None:
     return str(target)
 
 
+def _final(client: httpx.Client, url: str, deadline: Deadline) -> httpx.Response:
+    """Follow redirects without reading their bodies and return the final response."""
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        response = _send(client, current, deadline)
+        target = _redirect_target(response)
+        if target is None:
+            return response
+        response.close()
+        current = target
+    raise ReadError(f"Too many redirects (limit {MAX_REDIRECTS})")
+
+
 @contextmanager
 def open_final(
     url: str,
@@ -45,20 +63,17 @@ def open_final(
 ) -> Iterator[httpx.Response]:
     """Yield the final, unread response for *url* after at most ``MAX_REDIRECTS`` hops.
 
+    A watchdog closes the client when the deadline passes, so a blocked read ends too.
+
     Raises
     ------
     ReadError
         On a redirect to a non-http(s) scheme, too many hops, or an expired deadline.
     """
-    current = url
     with httpx.Client(follow_redirects=False, transport=transport) as client:
-        for _ in range(MAX_REDIRECTS + 1):
-            response = _send(client, current, deadline)
-            target = _redirect_target(response)
-            if target is None:
-                with closing(response):
-                    yield response
-                return
-            response.close()
-            current = target
-    raise ReadError(f"Too many redirects (limit {MAX_REDIRECTS})")
+        watchdog = deadline.watch(client.close)
+        try:
+            with closing(_final(client, url, deadline)) as response:
+                yield response
+        finally:
+            watchdog.cancel()

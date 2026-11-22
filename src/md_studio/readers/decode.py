@@ -1,7 +1,8 @@
 """Pick a text encoding for raw HTML bytes."""
 
 import codecs
-import re
+
+from md_studio.readers.charset import meta_charset
 
 _BOMS = (
     (codecs.BOM_UTF8, "utf-8-sig"),
@@ -10,11 +11,29 @@ _BOMS = (
     (codecs.BOM_UTF16_LE, "utf-16"),
     (codecs.BOM_UTF16_BE, "utf-16"),
 )
-_META_CHARSET = re.compile(rb"<meta\s[^>]*?\bcharset\s*=\s*[\"']?[\w-]+", re.IGNORECASE)
+_CP_ALIASES = frozenset(
+    (
+        "iso-8859-1",
+        "iso8859-1",
+        "iso_8859-1",
+        "latin1",
+        "latin-1",
+        "l1",
+        "us-ascii",
+        "ascii",
+        "cp1252",
+        "x-cp1252",
+        "windows-1252",
+    ),
+)
 _NOT_HTML_CODECS = frozenset(
     ("undefined", "unicode-escape", "raw-unicode-escape", "punycode", "idna"),
 )
-_META_WINDOW = 4096
+
+
+def _codec_name(label: str) -> str:
+    cleaned = label.strip().lower()
+    return "cp1252" if cleaned in _CP_ALIASES else cleaned
 
 
 def _is_text_codec(name: str) -> bool:
@@ -26,11 +45,12 @@ def _is_text_codec(name: str) -> bool:
     return bool(is_text) and codec.name not in _NOT_HTML_CODECS
 
 
-def _decode_as(raw: bytes, encoding: str) -> str | None:
-    if not _is_text_codec(encoding):
+def _decode_as(raw: bytes, label: str) -> str | None:
+    name = _codec_name(label)
+    if not _is_text_codec(name):
         return None
     try:
-        return raw.decode(encoding)
+        return raw.decode(name)
     except UnicodeError:
         return None
 
@@ -38,12 +58,14 @@ def _decode_as(raw: bytes, encoding: str) -> str | None:
 def decode_html(raw: bytes, charset: str | None) -> str | None:
     """Return *raw* as text, or ``None`` to let lxml guess.
 
-    Order is BOM, then HTTP charset, then strict UTF-8 unless a ``<meta>`` charset decides.
+    Order is BOM, HTTP charset, a real ``<meta>`` charset, then strict UTF-8. HTML's
+    latin-1 and ASCII labels decode as Windows-1252.
     """
     for bom, encoding in _BOMS:
         if raw.startswith(bom):
             return _decode_as(raw, encoding)
-    declared = _decode_as(raw, charset) if charset else None
-    if declared is not None or _META_CHARSET.search(raw[:_META_WINDOW]):
-        return declared
+    for label in (charset, meta_charset(raw)):
+        text = _decode_as(raw, label) if label else None
+        if text is not None:
+            return text
     return _decode_as(raw, "utf-8")
