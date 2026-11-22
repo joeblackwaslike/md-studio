@@ -68,6 +68,11 @@ def _stage_and_move(staging: Path, dest: Path, payload: bytes) -> None:
     os.replace(staging, dest)  # noqa: PTH105
 
 
+def _refusal(dest: Path) -> FileExistsError:
+    """Return the error for refusing to overwrite the existing *dest*."""
+    return FileExistsError(f"Refusing to overwrite existing file: {dest}")
+
+
 class FileSink:
     """Write rendered Markdown to a fixed destination path."""
 
@@ -104,27 +109,68 @@ class FileSink:
         OSError
             When the destination is a symlink or the file cannot be written.
         """
-        if self._dest.is_symlink():
-            msg = f"Destination is a symlink: {self._dest}"
-            raise OSError(msg)
-        if self._dest.is_dir():
-            msg = f"Destination is a directory: {self._dest}"
-            raise IsADirectoryError(msg)
+        return self.write_text(rendered.text)
+
+    def check(self) -> None:
+        """Raise when the destination cannot be written, before anything is touched.
+
+        Raises
+        ------
+        FileExistsError
+            When the destination exists and ``force`` is false.
+        IsADirectoryError
+            When the destination is a directory.
+        OSError
+            When the destination is a symlink.
+        """
+        self._check_kind()
+        if self._dest.exists() and not self._force:
+            raise _refusal(self._dest)
+
+    def write_text(self, text: str) -> Path:
+        """Write *text* as UTF-8 to the destination with the same safety as :meth:`write`.
+
+        Parent directories are created; without ``force`` the file is created
+        exclusively, with ``force`` it is staged privately and moved over the destination.
+
+        Returns
+        -------
+        Path
+            The written file path.
+
+        Raises
+        ------
+        FileExistsError
+            When the destination exists and ``force`` is false.
+        IsADirectoryError
+            When the destination is a directory.
+        OSError
+            When the destination is a symlink or the file cannot be written.
+        """
+        self._check_kind()
         self._dest.parent.mkdir(parents=True, exist_ok=True)
-        payload = rendered.text.encode("utf-8")
+        payload = text.encode("utf-8")
         if self._force:
             self._replace(payload)
         else:
             self._create(payload)
         return self._dest
 
+    def _check_kind(self) -> None:
+        """Raise when the destination is a symlink or a directory."""
+        if self._dest.is_symlink():
+            msg = f"Destination is a symlink: {self._dest}"
+            raise OSError(msg)
+        if self._dest.is_dir():
+            msg = f"Destination is a directory: {self._dest}"
+            raise IsADirectoryError(msg)
+
     def _create(self, payload: bytes) -> None:
         """Write *payload* to a new file, refusing to overwrite an existing one."""
         try:
             _write_new(self._dest, payload, _DEFAULT_MODE)
         except FileExistsError as error:
-            msg = f"Refusing to overwrite existing file: {self._dest}"
-            raise FileExistsError(msg) from error
+            raise _refusal(self._dest) from error
 
     def _replace(self, payload: bytes) -> None:
         """Replace the destination atomically via a private sibling temporary file."""

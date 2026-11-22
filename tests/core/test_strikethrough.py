@@ -102,3 +102,23 @@ def test_padded_strikethrough_keeps_its_padding_today(tmp_path: Path) -> None:
     body = _body(tmp_path, "a<del> x </del>b")
 
     assert "a~~ x ~~b" in body
+
+
+def test_strikethrough_nests_with_emphasis_either_way_round(tmp_path: Path) -> None:
+    body = _body(tmp_path, "<s><em>x</em></s> <em><s>y</s></em>")
+
+    assert "~~*x*~~ *~~y~~*" in body
+
+
+def test_strike_holding_only_a_removed_noteref_renders_nothing(tmp_path: Path) -> None:
+    fragment = (
+        '<p>a<del><a class="noteref" href="#fn1">1</a></del>b</p>'
+        '<aside id="fn1" class="footnote"><p>note</p></aside>'
+    )
+    epub = build_epub(tmp_path / "b.epub", "T", [ChapterSpec("One", fragment)])
+
+    body = convert(read_epub(epub), extensions=["remove-footnotes"]).body
+
+    assert "ab" in body
+    assert "~" not in body
+    assert "[^" not in body

@@ -3,7 +3,7 @@
 from enum import StrEnum
 from pathlib import Path
 
-from md_studio.core.convert import convert
+from md_studio.core.convert import RenderedMarkdown, convert
 from md_studio.core.document import Document
 from md_studio.sinks import SinkError
 from md_studio.sinks.obsidian import ObsidianSink
@@ -63,8 +63,13 @@ def open_vault_sink(vault: str | None, *, output: Path | None, force: bool) -> O
 
 def convert_to_vault(
     document: Document, *, source: Path, sink: ObsidianSink, extensions: list[str] | None
-) -> Path:
+) -> tuple[Path, RenderedMarkdown]:
     """Convert *document* with the vault's properties and write it as a new note.
+
+    Returns
+    -------
+    tuple[Path, RenderedMarkdown]
+        The note path and the conversion result.
 
     Raises
     ------
@@ -75,4 +80,4 @@ def convert_to_vault(
     """
     extra = sink.properties(document.metadata, source=source.name)
     rendered = convert(document, extensions=extensions, extra=extra)
-    return sink.write(rendered, name=source.stem)
+    return sink.write(rendered, name=source.stem), rendered

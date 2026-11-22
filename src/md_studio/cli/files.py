@@ -8,31 +8,27 @@ from md_studio.core.extensions import audit
 from md_studio.sinks.file import FileSink
 
 
-def _audit_target(rendered: RenderedMarkdown, dest: Path, *, force: bool) -> Path | None:
-    """Return where the promotion report goes, or ``None`` when nothing was promoted.
+def _audit_sink(rendered: RenderedMarkdown, dest: Path, *, force: bool) -> FileSink | None:
+    """Return the sink for the promotion report next to *dest*, or ``None`` if nothing moved.
 
-    Applies the file sink's destination checks, so a refused report is known before
-    anything is written.
+    The sink's checks run here, so a refused report is known before the Markdown is written.
+
+    Raises
+    ------
+    OSError
+        When *dest* has no file name to derive the report name from, or the report path
+        is a symlink, a directory, or exists without *force*.
     """
     if not rendered.promotions:
         return None
-    target = dest.with_name(f"{dest.stem}.audit.md")
-    if target.is_symlink():
-        msg = f"Destination is a symlink: {target}"
-        raise OSError(msg)
-    if target.is_dir():
-        msg = f"Destination is a directory: {target}"
-        raise IsADirectoryError(msg)
-    if target.exists() and not force:
-        msg = f"Refusing to overwrite existing file: {target}"
-        raise FileExistsError(msg)
-    return target
-
-
-def _write_audit(rendered: RenderedMarkdown, target: Path, *, force: bool) -> None:
-    """Write the promotion report to *target* (exclusively unless *force*)."""
-    with target.open("w" if force else "x", encoding="utf-8") as stream:
-        stream.write(audit.render(rendered.promotions))
+    try:
+        target = dest.with_name(f"{dest.stem}.audit.md")
+    except ValueError as error:
+        msg = f"Cannot place the audit report next to {dest}: {error}"
+        raise OSError(msg) from error
+    sink = FileSink(target, force=force)
+    sink.check()
+    return sink
 
 
 def convert_to_file(
@@ -42,25 +38,31 @@ def convert_to_file(
     dest: Path,
     extensions: list[str] | None,
     force: bool,
-) -> tuple[Path, Path | None]:
+) -> tuple[Path, Path | None, RenderedMarkdown]:
     """Convert *document* to *dest* and, when headings were promoted, write ``<stem>.audit.md``.
 
     Returns
     -------
-    tuple[Path, Path | None]
-        The Markdown path and the audit report path (``None`` when nothing was promoted).
+    tuple[Path, Path | None, RenderedMarkdown]
+        The Markdown path, the audit report path (``None`` when nothing was promoted) and
+        the conversion result.
 
     Raises
     ------
     MdStudioError
         When conversion fails.
     OSError
-        When the Markdown or the audit report cannot be written, or exists without *force*.
-        The audit target is checked before the Markdown is written.
+        When the Markdown cannot be written, or the audit report cannot be (checked before
+        the Markdown is written; a failure after it says which file was written).
     """
     rendered = convert(document, extensions=extensions)
-    target = _audit_target(rendered, dest, force=force)
+    audit_sink = _audit_sink(rendered, dest, force=force)
     written = FileSink(dest, force=force).write(rendered, name=source.stem)
-    if target is not None:
-        _write_audit(rendered, target, force=force)
-    return written, target
+    if audit_sink is None:
+        return written, None, rendered
+    try:
+        report = audit_sink.write_text(audit.render(rendered.promotions))
+    except OSError as error:
+        msg = f"wrote {written} but audit failed: {error}"
+        raise OSError(msg) from error
+    return written, report, rendered
