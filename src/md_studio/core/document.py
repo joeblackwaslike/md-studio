@@ -42,3 +42,4 @@ class Document:
     stylesheet: str = ""
     has_math: bool = False
     warnings: tuple[str, ...] = ()
+    embed_images: bool = field(default=False, kw_only=True)

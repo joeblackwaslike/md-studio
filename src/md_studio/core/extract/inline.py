@@ -13,7 +13,14 @@ from lxml import html
 from md_studio.core import ir
 from md_studio.core.extract import anchors
 from md_studio.core.extract.normalize import normalize_inlines
-from md_studio.core.extract.tags import EMPHASIS_TAGS, STRIKE_TAGS, STRONG_TAGS, localname
+from md_studio.core.extract.tags import (
+    EMPHASIS_TAGS,
+    MATH_TAG,
+    MATH_TEX_ATTR,
+    STRIKE_TAGS,
+    STRONG_TAGS,
+    localname,
+)
 
 _FORMATTING: MappingProxyType[str, type[ir.Emphasis | ir.Strong | ir.Strikethrough]] = (
     MappingProxyType({
@@ -56,6 +63,8 @@ def _convert_simple(child: html.HtmlElement, tag: str) -> list[ir.Inline]:  # ty
         return [ir.LineBreak()]
     if tag == "img":
         return [_convert_image(child)]
+    if tag == MATH_TAG:
+        return [ir.Math(child.get(MATH_TEX_ATTR, ""))]
     return normalize_inlines(collect_inline(child))
 
 

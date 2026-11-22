@@ -5,14 +5,15 @@ from dataclasses import replace
 from types import MappingProxyType
 
 from md_studio.core import ir
-from md_studio.core.render import leaves
+from md_studio.core.render import images, leaves
+from md_studio.core.urls import encode_destination
 
 Inlines = tuple[ir.Inline, ...]
 
 _LEAF_RENDERERS: MappingProxyType[type, Callable[..., str]] = MappingProxyType({
     ir.Text: leaves.render_text,
     ir.CodeSpan: leaves.render_code_span,
-    ir.Image: leaves.render_image,
+    ir.Image: images.render_image,
     ir.Math: leaves.render_math,
     ir.LineBreak: leaves.render_line_break,
     ir.FootnoteRef: leaves.render_footnote_ref,
@@ -37,7 +38,7 @@ def _render_inline(node: ir.Inline) -> str:
     if leaf is not None:
         return leaf(node)
     if isinstance(node, ir.Link):
-        return f"[{render_inlines(node.children)}]({node.href})"
+        return f"[{render_inlines(node.children)}]({encode_destination(node.href)})"
     if isinstance(node, ir.Strikethrough):
         return _render_strikethrough(node)
     if isinstance(node, (ir.Emphasis, ir.Strong)):

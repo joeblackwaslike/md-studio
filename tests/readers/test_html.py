@@ -42,6 +42,10 @@ def _loop(request: httpx.Request) -> httpx.Response:
     return httpx.Response(302, headers={"location": "https://example.com/a"})
 
 
+def _bad_host(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(302, headers={"location": "https://xn--bad-.example/a"})
+
+
 def _hop(request: httpx.Request) -> httpx.Response:
     return httpx.Response(302, headers={"location": "ftp://example.com/a"})
 
@@ -135,6 +139,11 @@ def test_transport_failure_becomes_read_error() -> None:
 def test_redirect_loop_becomes_read_error() -> None:
     with pytest.raises(ReadError, match="Too many redirects"):
         read_html("https://example.com/a", transport=httpx.MockTransport(_loop))
+
+
+def test_redirect_to_bad_idn_host_becomes_read_error() -> None:
+    with pytest.raises(ReadError, match="redirect"):
+        read_html("https://example.com/0", transport=httpx.MockTransport(_bad_host))
 
 
 def test_redirect_to_other_scheme_becomes_read_error() -> None:

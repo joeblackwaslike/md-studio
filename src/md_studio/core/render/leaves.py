@@ -20,11 +20,6 @@ def render_math(node: ir.Math) -> str:
     return inline_math(node.tex)
 
 
-def render_image(node: ir.Image) -> str:
-    """Render an image as its escaped alt text."""
-    return escape_text(node.alt)
-
-
 def render_line_break(node: ir.LineBreak) -> str:
     """Render a hard line break."""
     return "  \n"
