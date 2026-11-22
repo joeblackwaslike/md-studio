@@ -15,12 +15,12 @@ _SCHEMES = ("http", "https")
 
 def _send(client: httpx.Client, url: str, deadline: Deadline) -> httpx.Response:
     """Open *url* with only the remaining time budget; the body stays unread."""
-    deadline.check()
+    budget = deadline.require()
     request = client.build_request(
         "GET",
         url,
         headers={"Accept-Encoding": "gzip, deflate"},
-        timeout=httpx.Timeout(deadline.remaining()),
+        timeout=httpx.Timeout(budget),
     )
     response = client.send(request, stream=True)
     try:

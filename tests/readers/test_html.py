@@ -687,6 +687,28 @@ def test_accept_encoding_advertises_only_supported_codings() -> None:
     assert recorder.accept_encoding == ["gzip, deflate"]
 
 
+class _TimeoutSpy:
+    def __init__(self) -> None:
+        self.read_timeouts: list[float] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.read_timeouts.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, stream=_Raw(PAGE.encode()))
+
+
+def test_clock_jumping_past_the_deadline_mid_hop_is_a_read_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readings = itertools.chain([0, 0, 29], itertools.repeat(31))
+    monkeypatch.setattr("md_studio.readers.deadline._clock", lambda: float(next(readings)))
+    spy = _TimeoutSpy()
+
+    with pytest.raises(ReadError, match="total deadline"):
+        read_html("https://example.com/a", transport=httpx.MockTransport(spy))
+
+    assert all(timeout >= 0 for timeout in spy.read_timeouts)
+
+
 class _Pieces(httpx.SyncByteStream):
     def __init__(self, body: bytes, size: int, lead_empty: int = 0) -> None:
         self._parts = [

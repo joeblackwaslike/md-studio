@@ -21,18 +21,23 @@ class Deadline:
         self.expired = False
 
     def remaining(self) -> float:
-        """Return the seconds left, which is zero or negative once expired."""
-        return self._expires - _clock()
+        """Return the seconds left, never negative."""
+        return max(self._expires - _clock(), 0)
 
     def check(self) -> None:
         """Raise :class:`ReadError` when the budget is spent."""
-        if self.remaining() <= 0:
+        self.require()
+
+    def require(self) -> float:
+        """Return the seconds left from a single clock read, or raise when none remain."""
+        left = self.remaining()
+        if left <= 0:
             raise ReadError(MESSAGE)
+        return left
 
     def watch(self, close: Callable[[], None]) -> threading.Timer:
         """Start a daemon timer that flags expiry and calls *close* when time runs out."""
-        delay = max(self.remaining(), 0)
-        timer = threading.Timer(delay, self._fire, args=(close,))
+        timer = threading.Timer(self.remaining(), self._fire, args=(close,))
         timer.daemon = True
         timer.start()
         return timer

@@ -35,10 +35,12 @@ def _step(inflater: "zlib._Decompress", pending: bytes) -> bytes:
 
 
 def _feed(inflater: "zlib._Decompress", chunk: bytes) -> Iterator[bytes]:
+    """Yield everything *chunk* decodes to, including output left pending by the step cap."""
     pending = chunk
     while pending:
         yield _step(inflater, pending)
-        pending = inflater.unconsumed_tail
+        pending = b"" if inflater.eof else inflater.unconsumed_tail
+    yield from iter(partial(_step, inflater, b""), b"")
 
 
 class _Decoder:
@@ -52,7 +54,8 @@ class _Decoder:
 
     def feed(self, chunk: bytes) -> Iterator[bytes]:
         """Yield decoded output for the next raw *chunk*."""
-        self._carry.extend(chunk)
+        if not self._ignoring:
+            self._carry.extend(chunk)
         while self._carry and not self._ignoring:
             inflater = self._active()
             if inflater is None:
@@ -63,20 +66,21 @@ class _Decoder:
             if inflater.eof:
                 self._carry.extend(inflater.unused_data)
 
-    def finish(self) -> Iterator[bytes]:
-        """Drain pending output, then require the last member to have ended."""
+    def finish(self) -> None:
+        """Require the last member to have ended; bytes left after it are padding or junk."""
         inflater = self._inflater
-        if inflater is None:
-            if self._carry:
-                raise ReadError(_TRUNCATED)
-        else:
-            yield from iter(partial(_step, inflater, b""), b"")
-            if not inflater.eof:
-                raise ReadError(_TRUNCATED)
+        if inflater is None and self._carry:
+            raise ReadError(_TRUNCATED)
+        if inflater is not None and not inflater.eof:
+            raise ReadError(_TRUNCATED)
+        if bytes(self._carry).lstrip(b"\0") == _GZIP_MAGIC[:1]:
+            raise ReadError(_TRUNCATED)
 
     def _active(self) -> "zlib._Decompress | None":
         """Return the inflater ``_carry`` should be fed to, starting a member if needed."""
-        finished = self._inflater is not None and self._inflater.eof
+        if self._inflater is not None and not self._inflater.eof:
+            return self._inflater
+        finished = self._inflater is not None
         if finished and self._coding == "deflate":
             self._stop()
             return None
@@ -110,4 +114,4 @@ def expand(pieces: Iterable[bytes], coding: str | None) -> Iterator[bytes]:
     decoder = _Decoder(coding)
     for piece in pieces:
         yield from decoder.feed(piece)
-    yield from decoder.finish()
+    decoder.finish()
