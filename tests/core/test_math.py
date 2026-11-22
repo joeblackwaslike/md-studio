@@ -1,6 +1,10 @@
 """Tests for math IR nodes and their Markdown rendering."""
 
+from dataclasses import replace
 from pathlib import Path
+from typing import cast
+
+import pytest
 
 from md_studio.core import ir
 from md_studio.core.convert import convert
@@ -83,3 +87,43 @@ def test_epub_output_unchanged_without_math(tmp_path: Path) -> None:
 
 def test_math_contributes_its_tex_to_plain_text() -> None:
     assert text_of_inlines((ir.Text("a "), ir.Math("x^2"))) == "a x^2"
+
+
+@pytest.mark.parametrize(
+    ("tex", "expected"),
+    [
+        ("a$b", r"$a\$b$"),
+        (r"a\$b", r"$a\$b$"),
+        (r"a\\$b", r"$a\\\$b$"),
+        (r"a\\\$b", r"$a\\\$b$"),
+        (" x ", "$x$"),
+        ("\n x\n", "$x$"),
+    ],
+)
+def test_inline_math_contract(tex: str, expected: str) -> None:
+    assert render_inlines((ir.Math(tex),)) == expected
+
+
+def test_block_math_cannot_close_early() -> None:
+    lines = render_block_string(ir.MathBlock("a\n$$\nb")).split("\n")
+    assert lines == ["$$", "a", r"\$\$", "b", "$$"]
+
+
+def test_block_math_strips_surrounding_whitespace() -> None:
+    assert render_block_string(ir.MathBlock("\n  x  \n")) == "$$\nx\n$$"
+
+
+def test_convert_escapes_prose_dollars_only_when_document_has_math(tmp_path: Path) -> None:
+    path = build_epub(tmp_path / "m.epub", "M", [ChapterSpec("C", "<p>cost $5</p>")])
+    document = read_epub(path)
+
+    assert r"cost \$5" in convert(replace(document, has_math=True)).body
+    assert r"\$" not in convert(replace(document, has_math=False)).body
+
+
+def test_dollar_escaping_resets_after_a_failed_render() -> None:
+    broken = ir.ChapterIR("C", (ir.Paragraph(cast("tuple[ir.Inline, ...]", None)),))
+    with pytest.raises(TypeError):
+        Renderer(has_math=True).render((broken,))
+
+    assert r"\$" not in _body(ir.ChapterIR("C", (_para(ir.Text("$5")),)))
