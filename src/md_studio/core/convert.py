@@ -16,13 +16,18 @@ from md_studio.core.render import Renderer
 
 @dataclass(frozen=True, slots=True)
 class RenderedMarkdown:
-    """The converted Markdown: full text, its front-matter and body parts, and promotions."""
+    """The converted Markdown: full text, front-matter and body parts, promotions and notes.
+
+    ``notes`` describe input an enabled stylesheet-reading extension could not use; they
+    are empty for a default conversion.
+    """
 
     text: str
     front_matter: str
     body: str
     chapters: tuple[frontmatter.ChapterRange, ...]
     promotions: tuple[PromotionRecord, ...] = ()
+    notes: tuple[str, ...] = ()
 
 
 def convert(
@@ -63,10 +68,17 @@ def convert(
     """
     document, markdown_extensions = _fix_source(document, extensions or [])
     meta, chapters = assemble.assemble(document)
-    chapters, promotions = _apply_extensions(
-        meta, chapters, markdown_extensions, document.stylesheet
+    chapters, ctx = _apply_extensions(meta, chapters, markdown_extensions, document.stylesheet)
+    return _render(
+        meta, chapters, extra, tuple(ctx.audit), _notes(document, markdown_extensions, ctx)
     )
-    return _render(meta, chapters, extra, promotions)
+
+
+def _notes(document: Document, extensions: list[MarkdownExtension], ctx: ExtCtx) -> tuple[str, ...]:
+    """Return reader and extension notes, but only when a stylesheet-reading extension ran."""
+    if not any(extension.uses_stylesheet for extension in extensions):
+        return ()
+    return (*document.warnings, *ctx.notes)
 
 
 def _render(
@@ -74,6 +86,7 @@ def _render(
     chapters: tuple[ir.ChapterIR, ...],
     extra: Mapping[str, str | list[str]] | None,
     promotions: tuple[PromotionRecord, ...],
+    notes: tuple[str, ...],
 ) -> RenderedMarkdown:
     """Render *chapters* and build the two-pass front matter around the body."""
     rendered = Renderer().render(chapters)
@@ -90,6 +103,7 @@ def _render(
         body=rendered.body,
         chapters=tuple(ranges),
         promotions=promotions,
+        notes=notes,
     )
 
 
@@ -104,9 +118,8 @@ def _apply_extensions(
     chapters: tuple[ir.ChapterIR, ...],
     extensions: list[MarkdownExtension],
     stylesheet: str,
-) -> tuple[tuple[ir.ChapterIR, ...], tuple[PromotionRecord, ...]]:
-    """Run the Markdown extensions over *chapters*, returning the chapters and promotions."""
+) -> tuple[tuple[ir.ChapterIR, ...], ExtCtx]:
+    """Run the Markdown extensions over *chapters*, returning them with the shared context."""
     anchors = frozenset(note.identifier for chapter in chapters for note in chapter.footnotes)
     ctx = ExtCtx(book=meta, anchors=anchors, stylesheet=stylesheet)
-    chapters = pipeline.run(chapters, ctx, extensions)
-    return chapters, tuple(ctx.audit.records)
+    return pipeline.run(chapters, ctx, extensions), ctx

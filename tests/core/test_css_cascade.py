@@ -1,0 +1,106 @@
+"""CSS fidelity of the classifier: selector lists, cascade, sheets, units, multi-class."""
+
+from pathlib import Path
+
+import pytest
+
+from md_studio.core.convert import convert
+from md_studio.core.document import STYLESHEET_SEPARATOR
+from md_studio.core.extensions import css_headings
+from md_studio.readers.epub import read_epub
+from tests.readers._epub import CSS_HEADINGS_STYLESHEET, ChapterSpec, build_epub
+
+
+@pytest.mark.parametrize(
+    ("stylesheet", "expected"),
+    [
+        (".a, .b {font-size:2em}", {"a": 1, "b": 1}),
+        (".a,\n.b ,.c{font-size:2em}", {"a": 1, "b": 1, "c": 1}),
+        (".a, p.t, .c .d {font-size:2em}", {"a": 1}),
+        ("p.t{font-size:2em}.a.b{font-size:2em}", {}),
+        (".a{font-size:2rem}.a{font-size:1rem}", {}),
+        (".a{font-size:1.2rem}.a{font-weight:bold}", {"a": 1}),
+        (".a{font-size:2rem}.a{color:red}", {"a": 1}),
+        (".a{font-size:2rem}.b{font-size:1.5rem}.a, .b{font-weight:bold}", {"a": 1, "b": 2}),
+    ],
+)
+def test_classify_merges_declarations_per_class(stylesheet: str, expected: dict[str, int]) -> None:
+    assert css_headings.classify(stylesheet) == expected
+
+
+@pytest.mark.parametrize(
+    "broken",
+    ["a{", ".x{font-size:2rem", "/* never closed", '.x{content:"never closed', "@media x{.y{"],
+)
+def test_a_broken_sheet_does_not_swallow_the_next_one(broken: str) -> None:
+    stylesheet = STYLESHEET_SEPARATOR.join((broken, ".late{font-size:2rem}"))
+
+    assert css_headings.classify(stylesheet).get("late") == 1
+
+
+def test_cascade_spans_sheets() -> None:
+    stylesheet = STYLESHEET_SEPARATOR.join((".a{font-size:1.2rem}", ".a{font-weight:bold}"))
+
+    assert css_headings.classify(stylesheet) == {"a": 1}
+
+
+@pytest.mark.parametrize(
+    ("declarations", "level"),
+    [
+        ("font-size:20.8px", 1),
+        ("font-size:15.6pt", 1),
+        ("font-size:130%", 1),
+        ("font-size:1.29rem", None),
+        ("font-size:1.3rem", 1),
+        ("font-size:1.09rem;font-weight:bold", None),
+        ("font-size:1.1rem;font-weight:bold", 1),
+        ("font-size:1.1rem;font-weight:600", 1),
+        ("font-size:1.1rem;font-weight:700", 1),
+        ("font-size:1.1rem;font-weight:800", 1),
+        ("font-size:1.1rem;font-weight:900", 1),
+        ("font-size:1.1rem;font-weight:semibold", 1),
+        ("font-size:1.1rem;font-weight:bolder", None),
+        ("font-size:1.1rem;font-weight:500", None),
+        ("font-size:1.1rem;font-weight:normal", None),
+        ("font-size:1.2rem", None),
+        ("font-size:2rem !important", 1),
+        ("font-size:calc(2rem)", None),
+        ("font-size:large", None),
+    ],
+)
+def test_units_and_thresholds(declarations: str, level: int | None) -> None:
+    expected = {} if level is None else {"a": level}
+
+    assert css_headings.classify(f".a{{{declarations}}}") == expected
+
+
+def _paragraph_levels(tmp_path: Path, classes: str, stylesheet: str) -> list[int]:
+    body = f'<div class="{classes}">Title</div><div class="class-body">text</div>'
+    epub = build_epub(
+        tmp_path / "m.epub", "M", [ChapterSpec("Chapter One", body)], stylesheets=(stylesheet,)
+    )
+    rendered = convert(read_epub(epub), extensions=["fix-headings"])
+    return [record.level for record in rendered.promotions]
+
+
+@pytest.mark.parametrize(
+    ("classes", "expected"),
+    [("class-sub class-part", [1]), ("class-part class-sub", [1]), ("x class-sub", [3])],
+)
+def test_element_with_several_heading_classes_takes_the_most_prominent_level(
+    tmp_path: Path, classes: str, expected: list[int]
+) -> None:
+    assert _paragraph_levels(tmp_path, classes, CSS_HEADINGS_STYLESHEET) == expected
+
+
+def test_media_only_heading_class_stays_a_paragraph(tmp_path: Path) -> None:
+    stylesheet = "@media screen{.class-part{font-size:2.333rem}}"
+    body = '<div class="class-part">Part One</div>'
+    epub = build_epub(
+        tmp_path / "m.epub", "M", [ChapterSpec("Chapter One", body)], stylesheets=(stylesheet,)
+    )
+
+    rendered = convert(read_epub(epub), extensions=["fix-headings"])
+
+    assert rendered.promotions == ()
+    assert "\nPart One\n" in rendered.text

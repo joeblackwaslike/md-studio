@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from md_studio.core.convert import convert
-from md_studio.core.extensions import audit, css_headings
+from md_studio.core.extensions import audit, css_classes, css_headings
 from md_studio.readers.epub import read_epub
 from tests.readers._epub import (
     CSS_HEADINGS_STYLESHEET,
@@ -57,7 +57,7 @@ def test_classify_ignores_small_plain_text() -> None:
 
 @pytest.mark.parametrize("stylesheet", _HOSTILE)
 def test_classify_survives_hostile_css(stylesheet: str) -> None:
-    assert isinstance(css_headings.classify(stylesheet), dict)
+    assert css_headings.classify(stylesheet) == {}
 
 
 def _refuse_network(*_args: object, **_kwargs: object) -> None:
@@ -112,25 +112,37 @@ def test_audit_lists_every_promotion(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("text", "cell"),
     [
-        ("<img onerror=x>", "&lt;img onerror=x&gt;"),
-        ("use `code`", r"use \`code\`"),
-        ("[x](y)", r"\[x\](y)"),
-        (r"a\|b", r"a\\\|b"),
-        ("a & b", "a &amp; b"),
+        ("<img onerror=x>", "`<img onerror=x>`"),
+        ("https://evil.example", "`https://evil.example`"),
+        ("www.evil.example", "`www.evil.example`"),
+        ("*x* and _x_", "`*x* and _x_`"),
+        ("use `code`", "`use code`"),
+        ("a\u202eb", "`ab`"),
+        ("a\x1b[31mb\x85c", "`a[31mbc`"),
+        ("[x](y)", "`[x](y)`"),
+        ("a|b", r"`a\|b`"),
+        ("  spaced \n out ", "`spaced out`"),
+        ("   ", ""),
     ],
 )
-def test_audit_render_neutralises_markdown_and_html_in_cells(text: str, cell: str) -> None:
+def test_audit_cells_are_inert_code_spans(text: str, cell: str) -> None:
     row = audit.render([audit.PromotionRecord("C", text, "p", (), 1)]).splitlines()[-1]
 
-    assert row == f"| C | {cell} | p |  | 1 |"
+    assert row == f"| `C` | {cell} | `p` |  | 1 |"
 
 
-def test_audit_render_escapes_pipes_and_newlines() -> None:
-    record = audit.PromotionRecord("C|1", "a | b\nc", "p", ("x",), 2)
+def test_audit_cell_is_length_capped() -> None:
+    row = audit.render([audit.PromotionRecord("C", "x" * 500, "p", (), 1)]).splitlines()[-1]
+
+    assert row == f"| `C` | `{'x' * 199}…` | `p` |  | 1 |"
+
+
+def test_audit_render_lists_classes_and_level() -> None:
+    record = audit.PromotionRecord("C|1", "Big", "div", ("a", "b"), 2)
 
     row = audit.render([record]).splitlines()[-1]
 
-    assert row == r"| C\|1 | a \| b c | p | x | 2 |"
+    assert row == r"| `C\|1` | `Big` | `div` | `a b` | 2 |"
 
 
 def test_inline_size_fallback_still_works(tmp_path: Path) -> None:
@@ -189,7 +201,7 @@ def test_real_chapter_title_is_kept_when_first_block_is_promoted(tmp_path: Path)
 
 
 def test_classify_ignores_rules_past_the_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(css_headings, "_MAX_STYLESHEET_CHARS", 200)
+    monkeypatch.setattr(css_classes, "MAX_STYLESHEET_CHARS", 200)
     sheet = f".early{{font-size:2rem}}{' ' * 300}.late{{font-size:3rem}}"
 
     assert css_headings.classify(sheet) == {"early": 1}

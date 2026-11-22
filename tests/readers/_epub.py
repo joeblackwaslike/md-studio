@@ -146,3 +146,13 @@ def build_css_headings_epub(path: Path) -> Path:
     """Write an EPUB whose headings are CSS-styled ``div`` classes, not ``<hN>`` tags."""
     specs = [ChapterSpec("Chapter One", CSS_HEADINGS_BODY)]
     return build_epub(path, "Styled", specs, stylesheets=(CSS_HEADINGS_STYLESHEET,))
+
+
+def corrupt_first_stylesheet(source: Path, dest: Path) -> Path:
+    """Copy the EPUB at *source* to *dest* with the first CSS member's deflate data damaged."""
+    with zipfile.ZipFile(source) as archive:
+        member = archive.getinfo("OEBPS/css/s0.css")
+        data_start = member.header_offset + 30 + len(member.filename.encode()) + len(member.extra)
+    raw = source.read_bytes()
+    dest.write_bytes(raw[:data_start] + b"\xff" * 4 + raw[data_start + 4 :])
+    return dest

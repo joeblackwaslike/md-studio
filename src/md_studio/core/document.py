@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass, field
 
+STYLESHEET_SEPARATOR = "\x00"
+"""Joins the sheets of ``Document.stylesheet``; NUL never occurs inside a sheet."""
+
 
 @dataclass(frozen=True, slots=True)
 class DocumentMetadata:
@@ -36,3 +39,4 @@ class Document:
     chapters: tuple[SourceChapter, ...] = field(default_factory=tuple)
     stylesheet: str = ""
     has_math: bool = False
+    warnings: tuple[str, ...] = ()

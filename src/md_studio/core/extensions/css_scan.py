@@ -13,19 +13,11 @@ from dataclasses import dataclass
 from md_studio.core.extensions.css_noise import blank_noise
 
 _MAX_PRELUDE_RAW_CHARS = 4_096
-_MAX_SELECTOR_CHARS = 200
+_MAX_SELECTOR_CHARS = 1_024
 _MAX_BODY_CHARS = 2_048
 _STRUCTURE = re.compile(r"[{};}]")
 
 Rule = tuple[str, str]
-
-
-def _selector(prelude: str, body: str) -> Rule | None:
-    """Return ``(selector, body)`` for a qualified rule within the size caps, else ``None``."""
-    selector = prelude.strip()
-    if selector.startswith("@") or len(selector) > _MAX_SELECTOR_CHARS:
-        return None
-    return None if len(body) > _MAX_BODY_CHARS else (selector, body)
 
 
 @dataclass(slots=True)
@@ -35,13 +27,14 @@ class _Walk:
     start: int = 0
     body_start: int = 0
     depth: int = 0
-    prelude: str = ""
+    prelude: str | None = ""
+    dropped: int = 0
 
     def opened(self, text: str, at: int) -> None:
         """Handle a ``{`` at *at*."""
         if self.depth == 0:
             too_long = at - self.start > _MAX_PRELUDE_RAW_CHARS
-            self.prelude = "@" if too_long else text[self.start : at]
+            self.prelude = None if too_long else text[self.start : at]
             self.body_start = at + 1
         self.depth += 1
 
@@ -51,7 +44,18 @@ class _Walk:
         if self.depth > 0:
             return None
         self.start = at + 1
-        return _selector(self.prelude, text[self.body_start : at])
+        selector = (self.prelude or "").strip()
+        body = text[self.body_start : at]
+        if selector.startswith("@"):
+            return None
+        if (
+            self.prelude is None
+            or len(selector) > _MAX_SELECTOR_CHARS
+            or len(body) > _MAX_BODY_CHARS
+        ):
+            self.dropped += 1
+            return None
+        return selector, body
 
     def step(self, text: str, char: str, at: int) -> Rule | None:
         """Handle the structural *char* at *at*; return a completed rule, if any."""
@@ -64,21 +68,38 @@ class _Walk:
         return None
 
 
-def rules(css: str) -> Iterator[Rule]:
+def _notes(walk: _Walk, *, cut_by_comment: bool) -> list[str]:
+    """Describe what the scan could not read."""
+    notes = []
+    if cut_by_comment:
+        notes.append("stylesheet ends inside an unclosed comment; the rest was ignored")
+    if walk.depth > 0:
+        notes.append("stylesheet ends inside an unclosed block; that rule was ignored")
+    if walk.dropped:
+        notes.append(f"{walk.dropped} oversize rule(s) were ignored")
+    return notes
+
+
+def rules(css: str, notes: list[str] | None = None) -> Iterator[Rule]:
     """Yield ``(selector, body)`` for each top-level qualified rule, in linear time.
 
     Parameters
     ----------
     css:
-        Stylesheet text. Preludes over 4,096 characters, selectors over 200 and bodies
+        Stylesheet text. Preludes over 4,096 characters, selectors over 1,024 and bodies
         over 2,048 are skipped.
+    notes:
+        When given, receives a description of anything unreadable once the iterator is
+        exhausted (unclosed comment or block, oversize rules).
     """
-    text = blank_noise(css)
+    text, cut_by_comment = blank_noise(css)
     walk = _Walk()
     for token in _STRUCTURE.finditer(text):
         rule = walk.step(text, token.group(), token.start())
         if rule is not None:
             yield rule
+    if notes is not None:
+        notes.extend(_notes(walk, cut_by_comment=cut_by_comment))
 
 
 def _clean(raw: str) -> str:

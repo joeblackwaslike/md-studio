@@ -1,25 +1,19 @@
 """Record and render which paragraphs an extension promoted to headings."""
 
+import unicodedata
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 _HEADER = (
     "# Heading promotions\n\n"
     "| Chapter | Text | Was | Classes | Level |\n"
     "| --- | --- | --- | --- | --- |\n"
 )
-
-
-_CELL_ESCAPES = str.maketrans({
-    "\\": r"\\",
-    "|": r"\|",
-    "`": r"\`",
-    "[": r"\[",
-    "]": r"\]",
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-})
+_category = unicodedata.category
+_MAX_CELL_CHARS = 200
+_CUT_AT = _MAX_CELL_CHARS - 1
+_INVISIBLE = frozenset(("Cc", "Cf"))
+_ESCAPED_PIPE = r"\|"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,20 +31,23 @@ class PromotionRecord:
     level: int
 
 
-@dataclass(slots=True)
-class AuditLog:
-    """Mutable collector that extensions append promotions to via ``ExtCtx.audit``."""
-
-    records: list[PromotionRecord] = field(default_factory=list)
-
-    def add(self, record: PromotionRecord) -> None:
-        """Append *record* to the log."""
-        self.records.append(record)
+def _visible(text: str) -> str:
+    """Return *text* without control or format characters, backticks, or extra whitespace."""
+    kept = "".join(char for char in text if _category(char) not in _INVISIBLE)
+    return " ".join(kept.replace("`", "").split())
 
 
 def _cell(text: str) -> str:
-    """Return *text* safe inside a table cell: one line, Markdown and HTML neutralised."""
-    return " ".join(text.split()).translate(_CELL_ESCAPES)
+    """Return *text* as an inline code span that is inert in a Markdown table.
+
+    The text is untrusted. Whitespace is collapsed, control and format characters
+    (including bidi overrides) are dropped, backticks are removed, the length is capped,
+    and pipes are escaped. A code span cannot turn into a link, emphasis or HTML.
+    """
+    shown = _visible(text)
+    if len(shown) > _MAX_CELL_CHARS:
+        shown = "".join((shown[:_CUT_AT], "…"))
+    return f"`{shown.replace('|', _ESCAPED_PIPE)}`" if shown else ""
 
 
 def _row(record: PromotionRecord) -> str:
@@ -60,10 +57,9 @@ def _row(record: PromotionRecord) -> str:
         record.text,
         record.old_tag,
         " ".join(record.old_classes),
-        str(record.level),
     )
     line = " | ".join(_cell(cell) for cell in cells)
-    return f"| {line} |\n"
+    return f"| {line} | {record.level} |\n"
 
 
 def render(records: Sequence[PromotionRecord]) -> str:
@@ -77,6 +73,8 @@ def render(records: Sequence[PromotionRecord]) -> str:
     Returns
     -------
     str
-        The Markdown report; pipes and newlines in cell text are escaped.
+        The Markdown report. Every text cell is an inline code span with control
+        characters and backticks removed and pipes escaped, so untrusted EPUB text cannot
+        inject links, emphasis, HTML or bidi tricks.
     """
     return _HEADER + "".join(_row(record) for record in records)

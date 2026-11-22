@@ -1,9 +1,11 @@
 """Resolve and run the configured source fixes and Markdown extensions."""
 
+from typing import cast
+
 from md_studio.core import ir
 from md_studio.core.document import Document
 from md_studio.core.exceptions import ExtensionLoadError, UnknownExtensionError
-from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
+from md_studio.core.extensions.base import ExtCtx, MarkdownExtension, is_extension
 from md_studio.core.extensions.discovery import (
     Failures,
     Registered,
@@ -51,8 +53,13 @@ def resolve(names: list[str]) -> list[Resolved]:
 
 def split(resolved: list[Resolved]) -> tuple[list[SourceFix], list[MarkdownExtension]]:
     """Separate resolved names into source fixes and Markdown extensions, keeping order."""
-    fixes = [entry for entry in resolved if not isinstance(entry, MarkdownExtension)]
-    extensions = [entry for entry in resolved if isinstance(entry, MarkdownExtension)]
+    fixes: list[SourceFix] = []
+    extensions: list[MarkdownExtension] = []
+    for entry in resolved:
+        if is_extension(entry):
+            extensions.append(cast(MarkdownExtension, entry))
+        else:
+            fixes.append(cast(SourceFix, entry))
     return fixes, extensions
 
 

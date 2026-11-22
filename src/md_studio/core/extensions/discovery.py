@@ -11,7 +11,7 @@ import logging
 from importlib.metadata import EntryPoint, entry_points
 from typing import cast
 
-from md_studio.core.extensions.base import MarkdownExtension
+from md_studio.core.extensions.base import MarkdownExtension, is_extension
 from md_studio.core.extensions.fix_broken_links import FixBrokenLinks
 from md_studio.core.extensions.fix_headings import FixHeadings
 from md_studio.core.extensions.reformat_toc import ReformatToc
@@ -42,18 +42,16 @@ def _builtin_registry() -> Registry:
 def _problem(candidate: object) -> str | None:
     """Return why *candidate* cannot be registered, or ``None`` when it is usable."""
     if not isinstance(candidate, type):
-        return "TypeError: not a class"
+        return "not a class"
     name = getattr(candidate, "name", None)
     if not isinstance(name, str) or not name:
-        return "TypeError: needs a non-empty string `name`"
-    is_extension = issubclass(candidate, MarkdownExtension)
+        return "needs a non-empty string `name`"
+    extension = is_extension(candidate)
     has_apply = callable(getattr(candidate, "apply", None))
-    if is_extension and has_apply:
-        return "TypeError: is both a MarkdownExtension and a SourceFix (it defines `apply`)"
-    if not is_extension and not has_apply:
-        return (
-            "TypeError: neither a MarkdownExtension subclass nor a SourceFix (no callable `apply`)"
-        )
+    if extension and has_apply:
+        return "is both a MarkdownExtension and a SourceFix (it defines `apply`)"
+    if not extension and not has_apply:
+        return "neither a MarkdownExtension subclass nor a SourceFix (no callable `apply`)"
     return None
 
 
@@ -62,7 +60,7 @@ def _load(entry: EntryPoint) -> Registered:
     loaded = entry.load()
     problem = _problem(loaded)
     if problem is not None:
-        raise TypeError(problem.removeprefix("TypeError: "))
+        raise TypeError(problem)
     return cast(Registered, loaded)
 
 
