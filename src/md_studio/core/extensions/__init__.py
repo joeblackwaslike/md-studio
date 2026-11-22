@@ -8,6 +8,7 @@ from md_studio.core.extensions.fix_headings import FixHeadings
 from md_studio.core.extensions.pipeline import resolve, run
 from md_studio.core.extensions.reformat_toc import ReformatToc
 from md_studio.core.extensions.remove_footnotes import RemoveFootnotes
+from md_studio.core.extensions.source_fix import SourceFix
 
 __all__ = [
     "ENTRY_POINT_GROUP",
@@ -17,6 +18,7 @@ __all__ = [
     "MarkdownExtension",
     "ReformatToc",
     "RemoveFootnotes",
+    "SourceFix",
     "discover",
     "resolve",
     "run",

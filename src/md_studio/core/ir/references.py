@@ -6,6 +6,7 @@ from md_studio.core.ir.inline import (
     CodeSpan,
     Emphasis,
     LineBreak,
+    Strikethrough,
     Strong,
     Text,
 )
@@ -35,6 +36,6 @@ class FootnoteRef:
 
 
 _LeafInline = Text | LineBreak | CodeSpan
-_FormattedInline = Emphasis | Strong
+_FormattedInline = Emphasis | Strikethrough | Strong
 _ReferenceInline = Link | Image | FootnoteRef
 Inline = _LeafInline | _FormattedInline | _ReferenceInline

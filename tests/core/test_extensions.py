@@ -204,10 +204,12 @@ def test_resolve_reports_import_errors_raised_while_constructing(
         resolve(["lazy"])
 
 
-def test_resolve_lets_unrelated_construction_errors_propagate(
+def test_resolve_reports_any_construction_error_as_a_load_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, _BuggyExtension)
 
-    with pytest.raises(ValueError, match="programming error"):
+    with pytest.raises(
+        ExtensionLoadError, match=r"extension 'buggy' failed to load: .*programming"
+    ):
         resolve(["buggy"])

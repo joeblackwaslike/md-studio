@@ -27,8 +27,13 @@ Block = _TextBlock | _ContainerBlock
 
 @dataclass(frozen=True, slots=True)
 class ChapterIR:
-    """One assembled chapter: a title, body blocks, and hoisted footnotes."""
+    """One assembled chapter: a title, body blocks, and hoisted footnotes.
+
+    ``title_is_fallback`` marks a title that is only a generated placeholder (the file
+    stem or ``Chapter N``), which an extension may replace with a real heading.
+    """
 
     title: str
     blocks: tuple[Block, ...]
     footnotes: tuple[FootnoteDef, ...] = ()
+    title_is_fallback: bool = False

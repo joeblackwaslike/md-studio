@@ -1,28 +1,32 @@
-"""Discover available Markdown extensions (built-ins + entry-points).
+"""Discover available extensions and source fixes (built-ins + entry-points).
 
-Built-in names are reserved: a third-party entry-point that reuses a built-in
-name is ignored (with a warning), so installed packages cannot silently shadow
-shipped behaviour. Third-party extensions execute arbitrary code on load — only
+Both kinds share one name registry. Built-in names are reserved and the first
+registration of any name wins: a third-party entry-point that reuses a taken name is
+ignored (with a warning), so installed packages cannot silently shadow shipped or
+earlier behaviour. Third-party extensions execute arbitrary code on load — only
 install trusted packages.
 """
 
 import logging
-from importlib.metadata import entry_points
+from importlib.metadata import EntryPoint, entry_points
+from typing import cast
 
-from md_studio.core.extensions.base import MarkdownExtension
+from md_studio.core.extensions.base import MarkdownExtension, is_extension
 from md_studio.core.extensions.fix_broken_links import FixBrokenLinks
 from md_studio.core.extensions.fix_headings import FixHeadings
 from md_studio.core.extensions.reformat_toc import ReformatToc
 from md_studio.core.extensions.remove_footnotes import RemoveFootnotes
+from md_studio.core.extensions.source_fix import SourceFix
 
 logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "md_studio.extensions"
 
-Registry = dict[str, type[MarkdownExtension]]
+Registered = type[MarkdownExtension] | type[SourceFix]
+Registry = dict[str, Registered]
 Failures = dict[str, str]
 
-_BUILTINS: tuple[type[MarkdownExtension], ...] = (
+BUILTINS: tuple[Registered, ...] = (
     FixHeadings,
     RemoveFootnotes,
     FixBrokenLinks,
@@ -30,27 +34,61 @@ _BUILTINS: tuple[type[MarkdownExtension], ...] = (
 )
 
 
-def _builtin_registry() -> dict[str, type[MarkdownExtension]]:
-    """Return the built-in extension registry keyed by name."""
-    return {extension_cls.name: extension_cls for extension_cls in _BUILTINS}
+def _builtin_registry() -> Registry:
+    """Return the built-in registry keyed by name."""
+    return {registered.name: registered for registered in BUILTINS}
+
+
+def _problem(candidate: object) -> str | None:
+    """Return why *candidate* cannot be registered, or ``None`` when it is usable."""
+    if not isinstance(candidate, type):
+        return "not a class"
+    name = getattr(candidate, "name", None)
+    if not isinstance(name, str) or not name:
+        return "needs a non-empty string `name`"
+    extension = is_extension(candidate)
+    has_apply = callable(getattr(candidate, "apply", None))
+    if extension and has_apply:
+        return "is both a MarkdownExtension and a SourceFix (it defines `apply`)"
+    if not extension and not has_apply:
+        return "neither a MarkdownExtension subclass nor a SourceFix (no callable `apply`)"
+    return None
+
+
+def _load(entry: EntryPoint) -> Registered:
+    """Load *entry* and return it, raising ``TypeError`` when it is not a usable class."""
+    loaded = entry.load()
+    problem = _problem(loaded)
+    if problem is not None:
+        raise TypeError(problem)
+    return cast(Registered, loaded)
 
 
 def discover_with_failures() -> tuple[Registry, Failures]:
-    """Return the available extensions and the load error text of each failed entry-point."""
+    """Return the available registrations and why some names are unusable.
+
+    The first registration of a name wins (built-ins first); a later entry-point that
+    reuses a taken name is ignored and logged, and never blocks the retained one. The
+    failures cover only names with no retained registration: entry-points that fail to
+    load or register something unusable.
+    """
     registry = _builtin_registry()
     failures: Failures = {}
     for entry in entry_points(group=ENTRY_POINT_GROUP):
-        if entry.name in registry:
-            logger.warning("Ignoring entry-point %r: reserved built-in name", entry.name)
+        taken = registry.get(entry.name)
+        if taken is not None:
+            logger.warning(
+                "Ignoring entry-point %r: name already registered by %s", entry.name, taken.__name__
+            )
             continue
         try:
-            registry[entry.name] = entry.load()
+            registry[entry.name] = _load(entry)
         except Exception as error:
-            logger.debug("Failed to load markdown extension %r", entry.name, exc_info=True)
+            logger.debug("Failed to load extension %r", entry.name, exc_info=True)
             failures[entry.name] = f"{type(error).__name__}: {error}"
     return registry, failures
 
 
-def discover() -> dict[str, type[MarkdownExtension]]:
-    """Return all available extensions, merging built-ins and entry-points."""
+def discover() -> Registry:
+    """Return all available extensions and source fixes, merging built-ins and entry-points."""
     return discover_with_failures()[0]

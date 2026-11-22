@@ -16,7 +16,17 @@ Extras: `cli` (typer, rich) and `pdf` (docling).
 md-studio convert BOOK.epub [-o PATH] [--ext NAMES] [--force] [--sink file|obsidian] [--vault PATH]
 ```
 
-The output defaults to `BOOK.md` next to the source. `--ext` takes comma-separated extension names in pipeline order (`fix-headings,remove-footnotes,fix-broken-links,reformat-toc`). An existing destination is refused unless you pass `--force`, and the source file itself is never overwritten.
+The output defaults to `BOOK.md` next to the source. `--ext` takes comma-separated names, enabled in the order given (see [Extensions](#extensions)). An existing destination is refused unless you pass `--force`, and the source file itself is never overwritten.
+
+### Extensions
+
+Nothing runs unless you name it with `--ext`. Built-ins: `fix-headings`, `remove-footnotes`, `fix-broken-links`, `reformat-toc`.
+
+- `fix-headings` promotes paragraphs that act as headings. It reads the EPUB's stylesheet (at most 1 MiB, each sheet scanned on its own) and merges the declarations of each plain `.class` rule, alone or in a comma list, later rules winning. A class at 1.3rem or larger (or 1.1rem and bold: `bold`, `semibold`, 600-900) becomes a heading, ranked into levels 1-6 by size; sizes within 0.1rem share a level. `em` and `%` are treated as relative to the root font size (a simplification), `px` and `pt` are converted at 16px and 12pt per rem. An element with several heading classes takes the most prominent (lowest) level. Rules inside `@media` or other at-rules, and compound selectors such as `p.title`, are ignored, so a heading class defined only there stays a paragraph. Without a matching class it falls back to an inline `font-size` or a heading-like class name.
+- With `fix-headings` the command prints `Promoted N headings` (N may be 0), and one `warning:` line on stderr for each piece of CSS it could not use (a skipped, cut or corrupt stylesheet member, an unclosed comment or block, oversize rules). A default conversion never prints those warnings.
+- Every promotion is listed in `<output stem>.audit.md` (columns: chapter, text, original tag, original classes, level) next to the output, written only when something was promoted and only with the file sink (`--sink obsidian` writes no audit and says so). The Level column is the source heading level (1 means `h1`), the same numbering the old `fix_epub_headings.py` audit used; the Markdown output shifts every heading one level down under the chapter `##`. Each text cell is an inline code span with control characters, bidi marks and backticks removed, backslashes shown as the fullwidth lookalike `＼` (so no parser can read a pipe as escaped by the text) and pipes escaped, so untrusted EPUB text cannot become a link, emphasis or HTML. The report is written with the same atomic, symlink-refusing logic as the Markdown; an existing one is refused unless you pass `--force`, and that is checked before the `.md` is written.
+
+Extensions come in two kinds that share one name list. A Markdown extension subclasses `md_studio.core.extensions.MarkdownExtension` and transforms chapters. A source fix has a `name` and `apply(document) -> Document` (the `SourceFix` protocol) and runs before extraction, in listed order. To add either, write the class and register it in the `md_studio.extensions` entry-point group, or add it to `BUILTINS` in `md_studio/core/extensions/discovery.py`. Names are unique across both kinds: the first registration of a name wins (built-ins first), a later entry-point reusing it is ignored with a log warning, and an entry-point that fails to load or registers something unusable is reported only if you ask for its name.
 
 ### Obsidian sink
 

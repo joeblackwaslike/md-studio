@@ -1,31 +1,73 @@
-"""Resolve and run the configured Markdown extension pipeline."""
+"""Resolve and run the configured source fixes and Markdown extensions."""
+
+from typing import cast
 
 from md_studio.core import ir
+from md_studio.core.document import Document
 from md_studio.core.exceptions import ExtensionLoadError, UnknownExtensionError
-from md_studio.core.extensions.base import ExtCtx, MarkdownExtension
-from md_studio.core.extensions.discovery import discover_with_failures
+from md_studio.core.extensions.base import ExtCtx, MarkdownExtension, is_extension
+from md_studio.core.extensions.discovery import (
+    Failures,
+    Registered,
+    Registry,
+    discover_with_failures,
+)
+from md_studio.core.extensions.source_fix import SourceFix
+
+Resolved = MarkdownExtension | SourceFix
 
 
-def _instantiate(name: str, extension_cls: type[MarkdownExtension]) -> MarkdownExtension:
-    """Construct *extension_cls*, reporting a failed lazy import as a load error."""
+def _instantiate(name: str, registered: Registered) -> Resolved:
+    """Construct *registered*, reporting any constructor failure as a load error."""
     try:
-        return extension_cls()
-    except ImportError as error:
+        return registered()
+    except Exception as error:
         raise ExtensionLoadError(name, f"{type(error).__name__}: {error}") from error
 
 
-def resolve(names: list[str]) -> list[MarkdownExtension]:
-    """Instantiate the named extensions in order, raising on unknown or unloadable names."""
+def _lookup(name: str, registry: Registry, failures: Failures) -> Registered:
+    """Return the retained registration for *name*, raising when there is none."""
+    registered = registry.get(name)
+    if registered is not None:
+        return registered
+    failure = failures.get(name)
+    if failure is not None:
+        raise ExtensionLoadError(name, failure)
+    raise UnknownExtensionError(name, sorted(registry))
+
+
+def resolve(names: list[str]) -> list[Resolved]:
+    """Instantiate the named extensions and source fixes in order.
+
+    Raises
+    ------
+    UnknownExtensionError
+        When a name is not registered.
+    ExtensionLoadError
+        When the name has no usable registration because its entry-point failed to load or
+        registered an unusable object, or when its constructor raised.
+    """
     registry, failures = discover_with_failures()
-    resolved: list[MarkdownExtension] = []
-    for name in names:
-        extension_cls = registry.get(name)
-        if extension_cls is None and name in failures:
-            raise ExtensionLoadError(name, failures[name])
-        if extension_cls is None:
-            raise UnknownExtensionError(name, sorted(registry))
-        resolved.append(_instantiate(name, extension_cls))
-    return resolved
+    return [_instantiate(name, _lookup(name, registry, failures)) for name in names]
+
+
+def split(resolved: list[Resolved]) -> tuple[list[SourceFix], list[MarkdownExtension]]:
+    """Separate resolved names into source fixes and Markdown extensions, keeping order."""
+    fixes: list[SourceFix] = []
+    extensions: list[MarkdownExtension] = []
+    for entry in resolved:
+        if is_extension(entry):
+            extensions.append(cast(MarkdownExtension, entry))
+        else:
+            fixes.append(cast(SourceFix, entry))
+    return fixes, extensions
+
+
+def apply_source_fixes(document: Document, fixes: list[SourceFix]) -> Document:
+    """Apply each source fix to *document*, in order."""
+    for fix in fixes:
+        document = fix.apply(document)
+    return document
 
 
 def run(

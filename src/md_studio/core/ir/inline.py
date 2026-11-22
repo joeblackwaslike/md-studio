@@ -1,4 +1,4 @@
-"""Leaf and formatting inline IR nodes (text, breaks, code, emphasis)."""
+"""Leaf and formatting inline IR nodes (text, breaks, code, emphasis, strikethrough)."""
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -29,6 +29,13 @@ class CodeSpan:
 @dataclass(frozen=True, slots=True)
 class Emphasis:
     """Emphasised inline content (``<em>``/``<i>``)."""
+
+    children: tuple["Inline", ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Strikethrough:
+    """Struck-through inline content (``<del>``/``<s>``/``<strike>``)."""
 
     children: tuple["Inline", ...]
 

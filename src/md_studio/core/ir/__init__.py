@@ -21,6 +21,7 @@ from md_studio.core.ir.inline import (
     CodeSpan,
     Emphasis,
     LineBreak,
+    Strikethrough,
     Strong,
     Text,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "ListItem",
     "Meta",
     "Paragraph",
+    "Strikethrough",
     "Strong",
     "Table",
     "TableCell",

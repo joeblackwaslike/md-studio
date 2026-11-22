@@ -7,12 +7,12 @@ from typing import Annotated
 
 import typer
 
+from md_studio.cli.files import convert_to_file
+from md_studio.cli.report import report_conversion
 from md_studio.cli.vault import VAULT_ENV, SinkChoice, convert_to_vault, open_vault_sink
-from md_studio.core.convert import convert as convert_document
 from md_studio.core.document import Document
 from md_studio.core.exceptions import MdStudioError
 from md_studio.readers.epub import read_epub
-from md_studio.sinks.file import FileSink
 
 app = typer.Typer(help="Convert EPUB sources to Markdown.", no_args_is_help=True)
 
@@ -95,20 +95,23 @@ def convert(  # noqa: WPS211 -- one parameter per CLI option
     extensions = _split_names(ext)
     if sink is SinkChoice.VAULT:
         vault_sink = _guarded(lambda: open_vault_sink(vault, output=output, force=force))
-        written = _guarded(
+        outcome = _guarded(
             lambda: convert_to_vault(
                 _read(source), source=source, sink=vault_sink, extensions=extensions
             )
         )
-        typer.echo(f"Wrote {written}")
+        typer.echo(f"Wrote {outcome[0]}")
+        report_conversion(outcome[1], extensions, to_vault=True)
         return
     dest = output or source.with_suffix(".md")
     if _same_file(source, dest):
         raise _fail(f"Output path is the source file: {source}")
-    sink_file = FileSink(dest, force=force)
-    written = _guarded(
-        lambda: sink_file.write(
-            convert_document(_read(source), extensions=extensions), name=source.stem
+    done = _guarded(
+        lambda: convert_to_file(
+            _read(source), source=source, dest=dest, extensions=extensions, force=force
         )
     )
-    typer.echo(f"Wrote {written}")
+    typer.echo(f"Wrote {done[0]}")
+    if done[1] is not None:
+        typer.echo(f"Wrote heading audit {done[1]}")
+    report_conversion(done[2], extensions)

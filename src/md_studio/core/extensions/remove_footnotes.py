@@ -1,5 +1,6 @@
 """Extension: strip footnote references and definitions from chapters."""
 
+from dataclasses import replace
 from typing import ClassVar
 
 from md_studio.core import ir, transform
@@ -19,4 +20,4 @@ class RemoveFootnotes(MarkdownExtension):
     def transform_chapter(self, chapter: ir.ChapterIR, ctx: ExtCtx) -> ir.ChapterIR:
         """Return *chapter* with references stripped and no footnotes."""
         blocks = transform.map_inlines(chapter.blocks, _drop_refs)
-        return ir.ChapterIR(title=chapter.title, blocks=blocks, footnotes=())
+        return replace(chapter, blocks=blocks, footnotes=())
