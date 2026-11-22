@@ -14,6 +14,7 @@ _MAX_CELL_CHARS = 200
 _CUT_AT = _MAX_CELL_CHARS - 1
 _INVISIBLE = frozenset(("Cc", "Cf"))
 _ESCAPED_PIPE = r"\|"
+_BACKSLASH = "\uff3c"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +33,14 @@ class PromotionRecord:
 
 
 def _visible(text: str) -> str:
-    """Return *text* without control or format characters, backticks, or extra whitespace."""
-    spaced = "".join(" " if char.isspace() else char for char in text)
+    """Return *text* made display-safe for a table cell.
+
+    Control and format characters, backticks and extra whitespace are removed, and every
+    backslash becomes a fullwidth lookalike, so the only backslashes in a cell are the
+    pipe escapes added later and no parser can read a pipe as escaped by the text.
+    """
+    plain = text.replace("\\", _BACKSLASH)
+    spaced = "".join(" " if char.isspace() else char for char in plain)
     kept = "".join(char for char in spaced if _category(char) not in _INVISIBLE)
     return " ".join(kept.replace("`", "").split())
 

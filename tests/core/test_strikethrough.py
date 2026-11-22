@@ -98,10 +98,42 @@ def test_del_inside_code_adds_no_tildes_today(tmp_path: Path) -> None:
     assert "~" not in body
 
 
-def test_padded_strikethrough_keeps_its_padding_today(tmp_path: Path) -> None:
-    body = _body(tmp_path, "a<del> x </del>b")
+@pytest.mark.parametrize(
+    ("fragment", "expected"),
+    [
+        ("a<del> x </del>b", "a ~~x~~ b"),
+        ("a<del> x</del>b", "a ~~x~~b"),
+        ("a<del>x </del>b", "a~~x~~ b"),
+        ("a<del>x</del>b", "a~~x~~b"),
+        ("a <del> x </del> b", "a  ~~x~~  b"),
+    ],
+)
+def test_strikethrough_padding_stays_outside_the_delimiters(
+    tmp_path: Path, fragment: str, expected: str
+) -> None:
+    assert expected in _body(tmp_path, fragment)
 
-    assert "a~~ x ~~b" in body
+
+def test_whitespace_only_strikethrough_renders_no_tildes(tmp_path: Path) -> None:
+    body = _body(tmp_path, "a<del>   </del>b")
+
+    assert "~" not in body
+    assert "a b" in body
+
+
+@pytest.mark.parametrize(
+    ("fragment", "expected"),
+    [
+        ("<s>a<del>b</del>c</s>", "~~abc~~"),
+        ("<del><s>x</s></del>", "~~x~~"),
+        ("<s><em><del>x</del></em></s>", "~~*x*~~"),
+        ("<s>a <del>b</del> c</s>", "~~a b c~~"),
+        ("<s><strong><em><del>x</del></em></strong></s>", "~~***x***~~"),
+        ("<s><a href='u'><del>x</del></a></s>", "~~[x](u)~~"),
+    ],
+)
+def test_nested_strikethrough_is_flattened(tmp_path: Path, fragment: str, expected: str) -> None:
+    assert expected in _body(tmp_path, fragment)
 
 
 def test_strikethrough_nests_with_emphasis_either_way_round(tmp_path: Path) -> None:
