@@ -149,3 +149,34 @@ def test_oversize_rules_across_sheets_produce_one_note() -> None:
 
     oversize = [note for note in report.notes if "oversize" in note]
     assert oversize == [f"{expected_total} oversize rule(s) were ignored"]
+
+
+def _many_irrelevant_classes(rules: int) -> str:
+    return "".join(
+        f"{','.join(f'.c{rule}x{index}' for index in range(64))}{{color:red}}"
+        for rule in range(rules)
+    )
+
+
+def test_rules_without_relevant_declarations_do_not_use_the_class_budget() -> None:
+    stylesheet = f"{_many_irrelevant_classes(313)}.heading{{font-size:2rem}}"
+
+    report = css_headings.classify_report(stylesheet)
+
+    assert dict(report.levels) == {"heading": 1}
+    assert report.notes == ()
+
+
+def test_reaching_the_class_limit_is_noted_once() -> None:
+    sizes = "".join(
+        f"{','.join(f'.c{rule}x{index}' for index in range(64))}{{font-size:1rem}}"
+        for rule in range(313)
+    )
+    stylesheet = f"{sizes}.heading{{font-size:2rem}}.other{{font-size:2rem}}"
+
+    report = css_headings.classify_report(stylesheet)
+
+    assert "heading" not in report.levels
+    assert [note for note in report.notes if "classes" in note] == [
+        "more than 20000 classes; the rest were ignored"
+    ]

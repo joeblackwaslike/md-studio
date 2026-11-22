@@ -201,8 +201,13 @@ _SCALING_FAMILIES = MappingProxyType({
 })
 
 
+def _fresh_elapsed(stylesheet: str) -> float:
+    css_headings.classify_report.cache_clear()
+    return _elapsed(stylesheet)
+
+
 def _best_of_three(stylesheet: str) -> float:
-    return min(_elapsed(stylesheet) for _ in range(3))
+    return min(_fresh_elapsed(stylesheet) for _ in range(3))
 
 
 def _elapsed(stylesheet: str) -> float:

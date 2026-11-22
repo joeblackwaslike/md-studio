@@ -6,13 +6,14 @@ winning, so the caller can decide once per class whether it styles a heading.
 
 import re
 from collections.abc import Iterator
-from itertools import islice
+from itertools import chain, islice
 
 from md_studio.core.document import STYLESHEET_SEPARATOR
 from md_studio.core.extensions import css_scan
 from md_studio.core.extensions.css_declarations import (
     Declared,
     Merged,
+    add_class,
     declaration_list,
     override,
 )
@@ -52,31 +53,35 @@ def _relevant(body: str) -> dict[str, Declared]:
     return kept
 
 
-def _merge(found: Merged, selector: str, body: str) -> None:
-    """Merge the relevant declarations of *body* into each class of *selector* (cascade)."""
+def _merge(found: Merged, selector: str, body: str) -> bool:
+    """Merge the relevant declarations of *body* into each class of *selector* (cascade).
+
+    Rules with nothing relevant allocate no entries. Returns whether the class limit made
+    it refuse a new class.
+    """
     relevant = _relevant(body)
-    for name in _class_names(selector):
-        if name in found or len(found) < _MAX_CLASSES:
-            merged = found.setdefault(name, {})
-            for key, declared in relevant.items():
-                override(merged, key, declared)
+    names = _class_names(selector) if relevant else []
+    return not all(add_class(found, name, relevant, _MAX_CLASSES) for name in names)
 
 
 def _rules(stylesheet: str, notes: list[str], dropped: list[int]) -> Iterator[css_scan.Rule]:
-    """Yield the rules of every non-empty sheet in turn."""
-    for sheet in filter(None, stylesheet.split(STYLESHEET_SEPARATOR)):
-        yield from css_scan.rules(sheet, notes, dropped)
+    """Yield the first rules of the non-empty sheets in turn, noting when there were more."""
+    sheets = filter(None, stylesheet.split(STYLESHEET_SEPARATOR))
+    rules = chain.from_iterable(css_scan.rules(sheet, notes, dropped) for sheet in sheets)
+    yield from islice(rules, _MAX_RULES)
+    if next(rules, None) is not None:
+        notes.append(f"more than {_MAX_RULES} rules; the rest were ignored")
 
 
 def _scan(stylesheet: str, notes: list[str]) -> Merged:
-    """Merge declarations per class over the first rules of all sheets; note oversize ones once."""
+    """Merge declarations per class over the rules of all sheets; note what was dropped."""
     found: Merged = {}
     dropped: list[int] = []
-    rules = _rules(stylesheet, notes, dropped)
-    for selector, body in islice(rules, _MAX_RULES):
-        _merge(found, selector, body)
-    if next(rules, None) is not None:
-        notes.append(f"more than {_MAX_RULES} rules; the rest were ignored")
+    refused = False
+    for selector, body in _rules(stylesheet, notes, dropped):
+        refused = _merge(found, selector, body) or refused
+    if refused:
+        notes.append(f"more than {_MAX_CLASSES} classes; the rest were ignored")
     if sum(dropped):
         notes.append(f"{sum(dropped)} oversize rule(s) were ignored")
     return found

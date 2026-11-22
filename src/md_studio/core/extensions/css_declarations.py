@@ -46,3 +46,13 @@ def declarations(body: str) -> dict[str, Declared]:
 
 
 Merged = dict[str, dict[str, Declared]]
+
+
+def add_class(found: Merged, name: str, relevant: dict[str, Declared], limit: int) -> bool:
+    """Cascade *relevant* into class *name*; return ``False`` if the *limit* refused a new class."""
+    if name not in found and len(found) >= limit:
+        return False
+    merged = found.setdefault(name, {})
+    for key, declared in relevant.items():
+        override(merged, key, declared)
+    return True
