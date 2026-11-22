@@ -13,6 +13,7 @@ from md_studio.extractors.arxiv_id import parse_arxiv_id
 from md_studio.readers.pdf import read_pdf
 from md_studio.readers.pdf_engines import PdfEngine
 from md_studio.readers.source import load_source
+from md_studio.readers.urls import display_url
 
 
 def _read(raw: bytes, name: str, engine: PdfEngine | None) -> Document:
@@ -34,7 +35,11 @@ def read_arxiv_pdf(
     ReadError
         When arXiv has neither an HTML page nor a PDF for the paper, or the PDF cannot be read.
     """
-    paper = parse_arxiv_id(source) or "this paper"
+    paper = parse_arxiv_id(source)
+    if paper is None:
+        raise ReadError(
+            f"{display_url(source)} is not an arXiv paper, so it has no PDF to fall back to"
+        )
     url = f"https://arxiv.org/pdf/{paper}"
     try:
         loaded = load_source(url, transport)

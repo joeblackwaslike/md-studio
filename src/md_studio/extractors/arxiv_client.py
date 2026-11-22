@@ -135,9 +135,13 @@ class ArxivClient:
 
     def _fetch(self, source: str) -> Document:
         try:
-            return read_html(source, transport=self.transport)
+            return self._html_or_pdf(source)
         except ForbiddenUrlError as error:
             raise ReadError(str(error)) from None
+
+    def _html_or_pdf(self, source: str) -> Document:
+        try:
+            return read_html(source, transport=self.transport)
         except FetchStatusError as error:
             if error.status != HTTPStatus.NOT_FOUND:
                 raise
