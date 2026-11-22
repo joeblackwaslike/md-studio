@@ -23,7 +23,7 @@ def _parser(encoding: str | None) -> lxml_html.HTMLParser:  # type: ignore[no-an
 
 def _parse(loaded: LoadedSource) -> HtmlElement:
     text = decode_html(loaded.raw, loaded.charset)
-    payload = loaded.raw if text is None else text.encode("utf-8")
+    payload = loaded.raw if text is None else text.encode("utf-8", errors="replace")
     parser = _parser(None if text is None else "utf-8")
     try:
         return lxml_html.document_fromstring(payload, parser=parser)

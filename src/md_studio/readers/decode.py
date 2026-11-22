@@ -10,14 +10,28 @@ _BOMS = (
     (codecs.BOM_UTF16_LE, "utf-16"),
     (codecs.BOM_UTF16_BE, "utf-16"),
 )
-_META_CHARSET = re.compile(rb"<meta[^>]+charset", re.IGNORECASE)
+_META_CHARSET = re.compile(rb"<meta\s[^>]*?\bcharset\s*=\s*[\"']?[\w-]+", re.IGNORECASE)
+_NOT_HTML_CODECS = frozenset(
+    ("undefined", "unicode-escape", "raw-unicode-escape", "punycode", "idna"),
+)
 _META_WINDOW = 4096
 
 
+def _is_text_codec(name: str) -> bool:
+    try:
+        codec = codecs.lookup(name)
+    except LookupError:
+        return False
+    is_text = getattr(codec, "_is_text_encoding", True)
+    return bool(is_text) and codec.name not in _NOT_HTML_CODECS
+
+
 def _decode_as(raw: bytes, encoding: str) -> str | None:
+    if not _is_text_codec(encoding):
+        return None
     try:
         return raw.decode(encoding)
-    except (LookupError, UnicodeDecodeError):
+    except UnicodeError:
         return None
 
 

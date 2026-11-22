@@ -385,6 +385,52 @@ class _CountingExtractor(_Extractor):
         return super().resolve(source)
 
 
+def _with_header_charset(body: bytes, charset: str) -> httpx.MockTransport:
+    return httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            content=body,
+            headers={"content-type": f"text/html; charset={charset}"},
+        ),
+    )
+
+
+def test_decoy_meta_mentioning_charset_does_not_block_utf8() -> None:
+    body = '<html><head><meta name="d" content="set charset here"></head><body><p>café — ok</p></body></html>'
+
+    document = read_html("https://example.com/d", transport=_fixed(body.encode()))
+
+    assert "café — ok" in _text(document)
+
+
+def test_http_equiv_meta_charset_is_honored() -> None:
+    body = (
+        '<html><head><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">'
+        "</head><body><p>café</p></body></html>"
+    )
+
+    document = read_html("https://example.com/h", transport=_fixed(body.encode("latin-1")))
+
+    assert "café" in _text(document)
+
+
+@pytest.mark.parametrize(
+    "charset", ["undefined", "unicode_escape", "raw_unicode_escape", "rot13", "idna"]
+)
+def test_non_text_charset_header_falls_back_to_utf8(charset: str) -> None:
+    transport = _with_header_charset(UTF8_PAGE.encode(), charset)
+
+    assert "café — ok" in _text(read_html("https://example.com/c", transport=transport))
+
+
+def test_lone_surrogate_from_decoder_does_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("md_studio.readers.html.decode_html", lambda raw, charset: "\ud800<p>x</p>")
+
+    document = read_html("https://example.com/s", transport=_fixed(b"<p>x</p>"))
+
+    assert "x" in _text(document)
+
+
 def test_resolve_is_called_once_and_only_on_first_match() -> None:
     skipped = _CountingExtractor("https://other", "no")
     first = _CountingExtractor("https://a", "first")
