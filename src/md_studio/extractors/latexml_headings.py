@@ -2,14 +2,15 @@
 
 from collections.abc import Iterable
 
+from md_studio.extractors.latexml_classes import classes_of
 from md_studio.extractors.latexml_findings import Entry
+from md_studio.extractors.latexml_loose import TITLE_ATTR
 from md_studio.extractors.latexml_text import plain_text
 from md_studio.readers.html import HtmlElement
 
 _SEPARATOR = " \u00b7 "
 _CHAPTER = "ltx_chapter"
 _PART_TAG = "ltx_tag"
-_CLASS = "class"
 
 
 def set_entry_titles(entries: Iterable[Entry]) -> None:
@@ -22,13 +23,15 @@ def set_entry_titles(entries: Iterable[Entry]) -> None:
     labels: dict[HtmlElement, str] = {}
     for entry in entries:
         heading = entry.title_element
-        if heading is not None:
-            entry.title = _prefixed(entry, plain_text(heading), labels)
-            heading.drop_tree()
+        if heading is None:
+            entry.title = entry.element.get(TITLE_ATTR, "")
+            continue
+        entry.title = _prefixed(entry, plain_text(heading), labels)
+        heading.drop_tree()
 
 
 def _prefixed(entry: Entry, title: str, labels: dict[HtmlElement, str]) -> str:
-    chapter = _CHAPTER in entry.element.get(_CLASS, "").split()
+    chapter = _CHAPTER in classes_of(entry.element)
     prefix = _part_prefix(entry.part, labels) if chapter else ""
     return f"{prefix}{_SEPARATOR}{title}" if prefix and title else title
 
@@ -44,4 +47,4 @@ def _part_prefix(part: HtmlElement | None, labels: dict[HtmlElement, str]) -> st
 
 
 def _is_label(element: HtmlElement) -> bool:
-    return _PART_TAG in element.get(_CLASS, "").split()
+    return _PART_TAG in classes_of(element)

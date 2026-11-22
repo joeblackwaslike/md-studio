@@ -1,55 +1,38 @@
 """Links and image sources of a LaTeXML page: absolute URLs and heading anchors."""
 
 from collections.abc import Iterable, Mapping
-from urllib.parse import urljoin
 
 from md_studio.core.urls import safe_urlsplit
-from md_studio.extractors.arxiv_id import parse_arxiv_id
+from md_studio.extractors.latexml_urls import absolute_url
 from md_studio.readers.html import HtmlElement
 
-HTML_ROOT = "https://arxiv.org/html/"
 _KEPT_SCHEMES = frozenset(("http", "https", "mailto"))
 _HREF = "href"
 
 
-def absolute_url(source: str, paper: str | None) -> str | None:
-    """Resolve *source* against arXiv's HTML tree, or ``None`` when that needs the paper id.
-
-    A source whose first segment is itself an arXiv id (``2606.24937v3/figures/a.png``)
-    and a root-relative source resolve against ``https://arxiv.org/html/``; any other
-    relative source resolves against the paper's own directory, which needs *paper*.
-    Malformed and protocol-relative (``//host/x``) sources give ``None``.
-    """
-    parts = safe_urlsplit(source)
-    if parts is None:
-        return None
-    if parts.scheme:
-        return source
-    if parts.netloc:
-        return None
-    first = source.split("/", 1)[0]
-    if source.startswith("/") or parse_arxiv_id(first) is not None:
-        return urljoin(HTML_ROOT, source)
-    return None if paper is None else urljoin(f"{HTML_ROOT}{paper}/", source)
-
-
 def rewrite_links(
     links: Iterable[HtmlElement], anchors: Mapping[str, str], paper: str | None
-) -> None:
+) -> int:
     """Point each in-page link at its heading's anchor and unwrap the ones with no heading.
 
     Links to ``#id`` become ``#<anchor>`` when *anchors* has the id and are unwrapped to
     their text otherwise. Relative links become absolute; links with a scheme other than
-    http, https or mailto (``data:``, ``javascript:``) are unwrapped.
+    http, https or mailto (``data:``, ``javascript:``), protocol-relative links (``//host``)
+    and malformed ones are unwrapped. Returns how many relative links could not be made
+    absolute because the paper is unknown; they are left as they are.
     """
-    for link in links:
-        target = link.get(_HREF, "")
-        if target.startswith("#"):
-            _point(link, anchors.get(target[1:]))
-        elif _unsafe(target):
-            _unwrap(link)
-        else:
-            _absolutize(link, target, paper)
+    return sum(_rewrite(link, anchors, paper) for link in links)
+
+
+def _rewrite(link: HtmlElement, anchors: Mapping[str, str], paper: str | None) -> bool:
+    target = link.get(_HREF, "")
+    if target.startswith("#"):
+        _point(link, anchors.get(target[1:]))
+    elif _unsafe(target):
+        _unwrap(link)
+    else:
+        return _absolutize(link, target, paper)
+    return False
 
 
 def _point(link: HtmlElement, anchor: str | None) -> None:
@@ -69,10 +52,14 @@ def _unsafe(target: str) -> bool:
     parts = safe_urlsplit(target)
     if parts is None:
         return True
-    return bool(parts.scheme) and parts.scheme.lower() not in _KEPT_SCHEMES
+    if parts.scheme:
+        return parts.scheme.lower() not in _KEPT_SCHEMES
+    return bool(parts.netloc)
 
 
-def _absolutize(link: HtmlElement, target: str, paper: str | None) -> None:
+def _absolutize(link: HtmlElement, target: str, paper: str | None) -> bool:
     resolved = absolute_url(target, paper) if target else None
-    if resolved is not None:
-        link.set(_HREF, resolved)
+    if resolved is None:
+        return bool(target)
+    link.set(_HREF, resolved)
+    return False

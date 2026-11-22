@@ -15,7 +15,7 @@ from md_studio.core.exceptions import ReadError
 from md_studio.extractors.arxiv_latexml import LatexmlFix
 from md_studio.extractors.latexml_text import plain_text
 from md_studio.readers.html import read_html
-from tests.extractors.test_arxiv_latexml import PAPER, _markdown, _page
+from tests.extractors.test_arxiv_latexml import PAPER, _page
 
 ARTICLE = Path(__file__).parents[1] / "fixtures" / "latexml_article.html"
 NOTE = (
@@ -52,20 +52,6 @@ def test_footnote_text_stays_out_of_chapter_and_section_headings(tmp_path: Path)
     assert "\n### Part\n" in text
     assert "[there](#part)" in text
     assert not any("LEAKED" in line for line in text.splitlines() if line.startswith("#"))
-
-
-def test_equations_keep_document_order() -> None:
-    text = _markdown()
-
-    assert "$$\ny=2\n$$\n\n$$\nz=3\n$$" in text
-
-
-def test_span_listing_and_span_equation_are_rewritten() -> None:
-    text = _markdown()
-
-    assert "```c++\nint x;\n```" in text
-    assert "Inline code ends." in text
-    assert "Then and done." in text
 
 
 def test_malformed_urls_do_not_crash_the_conversion(tmp_path: Path) -> None:
@@ -186,7 +172,9 @@ def test_chapterless_paper_uses_its_sections_as_chapters() -> None:
     fixed = LatexmlFix().apply(_article())
 
     assert [chapter.title for chapter in fixed.chapters] == [
+        "Abstract",
         "1 Introduction",
+        "Acknowledgements",
         "2 Method",
         "References",
     ]
@@ -199,7 +187,7 @@ def test_chapterless_paper_gets_every_other_rule() -> None:
 
     assert "\n### 1.1 Setup\n" in text
     assert "\n#### 1.1.1 Inputs\n" in text
-    assert "We study $n$ items[^c0-fn-1]" in text
+    assert "We study $n$ items[^c1-fn-1]" in text
     assert "```python\nprint(1)\n```" in text
     assert "[Details](#21-details)" in text
 

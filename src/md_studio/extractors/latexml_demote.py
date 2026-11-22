@@ -5,6 +5,7 @@ from types import MappingProxyType
 
 from lxml import html as lxml_html
 
+from md_studio.extractors.latexml_classes import classes_of
 from md_studio.readers.html import HtmlElement
 
 _DEPTH = MappingProxyType({
@@ -15,7 +16,6 @@ _DEPTH = MappingProxyType({
 _LEVELS = MappingProxyType({"h4": "h2", "h5": "h3", "h6": "h4"})
 _LEAD_IN = "ltx_title_paragraph"
 _ARTICLE_SECTION_LEVEL = 2
-_CLASS = "class"
 
 
 def demote_headings(headings: Iterable[HtmlElement], entry_depth: int = 0) -> None:
@@ -30,7 +30,7 @@ def demote_headings(headings: Iterable[HtmlElement], entry_depth: int = 0) -> No
     ``h1``/``h2`` stay.
     """
     for heading in headings:
-        classes = heading.get(_CLASS, "").split()
+        classes = classes_of(heading)
         if _LEAD_IN in classes:
             _lead_in(heading)
             continue

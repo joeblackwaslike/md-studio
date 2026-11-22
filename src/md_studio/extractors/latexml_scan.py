@@ -13,13 +13,14 @@ from lxml import etree
 from md_studio.core.exceptions import ReadError
 from md_studio.extractors import latexml_boxes, latexml_nodes
 from md_studio.extractors.latexml_findings import Findings
+from md_studio.extractors.latexml_loose import LOOSE_CLASS, wrap_loose
 from md_studio.extractors.latexml_walk import Walk
 from md_studio.readers.html import HtmlElement
 
 MAX_ELEMENTS = 1_000_000
 _SECTION = "section"
 _BOOK_ENTRIES = frozenset(("ltx_chapter", "ltx_appendix", "ltx_bibliography"))
-_ARTICLE_ENTRIES = frozenset(("ltx_section", "ltx_appendix", "ltx_bibliography"))
+_ARTICLE_ENTRIES = frozenset(("ltx_section", "ltx_appendix", "ltx_bibliography", LOOSE_CLASS))
 _HEADINGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 type _Rule = Callable[[Walk, HtmlElement, frozenset[str]], None]
 _RULES: MappingProxyType[str, _Rule] = MappingProxyType({
@@ -54,7 +55,10 @@ def scan(root: HtmlElement, limit: int = MAX_ELEMENTS) -> Findings:
     ReadError
         When the tree has more than *limit* elements, or nests a heading in a heading.
     """
-    walk = Walk(limit, _BOOK_ENTRIES if _has_chapters(root) else _ARTICLE_ENTRIES)
+    book = _has_chapters(root)
+    if not book:
+        wrap_loose(root, _ARTICLE_ENTRIES)
+    walk = Walk(limit, _BOOK_ENTRIES if book else _ARTICLE_ENTRIES)
     for event, element in etree.iterwalk(root, events=("start", "end")):
         if event == "end":
             walk.close(element)

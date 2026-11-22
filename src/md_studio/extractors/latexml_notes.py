@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 from lxml import html as lxml_html
 
+from md_studio.extractors.latexml_classes import classes_of
 from md_studio.extractors.latexml_findings import Note
 from md_studio.readers.html import HtmlElement
 
@@ -55,19 +56,22 @@ def _definition(span: HtmlElement, identifier: str) -> HtmlElement:
     return box
 
 
+def _keeps(child: HtmlElement) -> bool:
+    if not isinstance(child.tag, str):
+        return False
+    return not _DROPPED & set(classes_of(child))
+
+
 def _move(paragraph: HtmlElement, child: HtmlElement) -> None:
-    if _DROPPED & set(child.get(_CLASS, "").split()):
-        _add_text(paragraph, child.tail)
-    else:
+    if _keeps(child):
         paragraph.append(child)
+    else:
+        _add_text(paragraph, child.tail)
 
 
 def _body(span: HtmlElement) -> HtmlElement | None:
-    return next((inner for inner in span.iter("span") if _is_body(inner)), None)
-
-
-def _is_body(span: HtmlElement) -> bool:
-    return _BODY_CLASS in span.get(_CLASS, "").split()
+    bodies = (inner for inner in span.iter("span") if _BODY_CLASS in classes_of(inner))
+    return next(bodies, None)
 
 
 def _add_text(paragraph: HtmlElement, text: str | None) -> None:

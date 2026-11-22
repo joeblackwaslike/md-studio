@@ -24,6 +24,7 @@ def heading(walk: Walk, element: HtmlElement, classes: frozenset[str]) -> None:
         entry.title_element = element
     else:
         walk.found.headings.append(element)
+        walk.found.outline.append(element)
 
 
 def _is_title(entry: Entry, element: HtmlElement) -> bool:

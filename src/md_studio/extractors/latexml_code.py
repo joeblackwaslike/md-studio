@@ -4,6 +4,7 @@ import re
 
 from lxml import html as lxml_html
 
+from md_studio.extractors.latexml_classes import classes_of
 from md_studio.readers.html import HtmlElement
 
 _LANGUAGE_PREFIX = "ltx_lst_language_"
@@ -26,12 +27,8 @@ def listing_block(listing: HtmlElement) -> HtmlElement:
     return pre
 
 
-def _classes(element: HtmlElement) -> list[str]:
-    return str(element.get(_CLASS, "")).split()
-
-
 def _language(listing: HtmlElement) -> str:
-    for name in _classes(listing):
+    for name in classes_of(listing):
         if name.startswith(_LANGUAGE_PREFIX):
             return _UNSAFE_LANGUAGE.sub("", name.removeprefix(_LANGUAGE_PREFIX).lower())
     return ""
@@ -42,7 +39,7 @@ def _source(listing: HtmlElement) -> str:
     lines = [
         "".join(line.itertext()).replace(_NBSP, " ").rstrip()
         for line in listing
-        if _LINE_CLASS in _classes(line)
+        if _LINE_CLASS in classes_of(line)
     ]
     if not lines and not _only_data(listing):
         return "".join(listing.itertext()).strip()
@@ -50,4 +47,4 @@ def _source(listing: HtmlElement) -> str:
 
 
 def _only_data(listing: HtmlElement) -> bool:
-    return all(_DATA_CLASS in _classes(child) for child in listing)
+    return all(_DATA_CLASS in classes_of(child) for child in listing)

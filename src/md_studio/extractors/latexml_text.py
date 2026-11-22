@@ -3,11 +3,12 @@
 from lxml import etree
 
 from md_studio.core.extract.tags import MATH_TAG, MATH_TEX_ATTR
+from md_studio.extractors.latexml_classes import classes_of
 from md_studio.readers.html import HtmlElement
 
 _ALTTEXT = "alttext"
 _MATH_TAGS = frozenset(("math", MATH_TAG))
-_FOOTNOTE = "ltx_note"
+_HIDDEN = frozenset(("ltx_note", "noteref"))
 
 
 def _tex(math: HtmlElement) -> str:
@@ -18,7 +19,7 @@ def _replacement(node: HtmlElement) -> str | None:
     """Return the text a node stands for with its subtree hidden, or ``None`` to read it."""
     if node.tag in _MATH_TAGS:
         return _tex(node)
-    if _FOOTNOTE in node.get("class", "").split():
+    if _HIDDEN & set(classes_of(node)):
         return ""
     return None
 
@@ -26,8 +27,8 @@ def _replacement(node: HtmlElement) -> str | None:
 def plain_text(element: HtmlElement) -> str:
     """Return the whitespace-normalised text of *element* in one pass.
 
-    Math is replaced by its TeX (``alttext``), never by the MathML text, footnotes are left
-    out so a heading reads the same with or without them, and text after comments and
+    Math is replaced by its TeX (``alttext``), never by the MathML text, footnotes and their markers are
+    left out so a heading reads the same with or without them, and text after comments and
     processing instructions is kept. The tail of *element* itself is left out.
     """
     parts: list[str] = []

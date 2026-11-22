@@ -30,6 +30,7 @@ NOT_LATEXML = "arxiv-latexml: no LaTeXML chapters found; the page was left as it
 RELATIVE_IMAGES = (
     "arxiv-latexml: some image sources could not be made absolute and were left as they are"
 )
+RELATIVE_LINKS = "arxiv-latexml: some relative links could not be made absolute (paper id unknown)"
 
 
 class LatexmlFix:
@@ -75,22 +76,27 @@ class LatexmlFix:
 
 def _rewrite(document: Document, found: Findings) -> Document:
     paper = parse_arxiv_id(document.metadata.source_file)
-    unresolved, has_equations = _rewrite_markup(found, paper)
-    warnings = (*document.warnings, RELATIVE_IMAGES) if unresolved else document.warnings
+    images, links, has_equations = _rewrite_markup(found, paper)
     return replace(
         document,
         metadata=replace(document.metadata, title=_title(document.metadata, found)),
         chapters=tuple(SourceChapter(entry.title, entry.element) for entry in found.entries),
         has_math=document.has_math or bool(found.maths) or has_equations,
         embed_images=True,
-        warnings=warnings,
+        warnings=(*document.warnings, *_notes(images=images, links=links)),
     )
 
 
-def _rewrite_markup(found: Findings, paper: str | None) -> tuple[int, bool]:
+def _notes(*, images: int, links: int) -> list[str]:
+    notes = [RELATIVE_IMAGES] if images else []
+    return [*notes, RELATIVE_LINKS] if links else notes
+
+
+def _rewrite_markup(found: Findings, paper: str | None) -> tuple[int, int, bool]:
     """Rewrite every construct the scan found, in an order that keeps titles and anchors right.
 
-    Returns how many image sources stayed relative and whether any equation became math.
+    Returns how many image sources and links stayed relative, and whether any equation became
+    math.
     """
     set_entry_titles(found.entries)
     targets = anchors(found)
@@ -99,10 +105,9 @@ def _rewrite_markup(found: Findings, paper: str | None) -> tuple[int, bool]:
     has_equations = rewrite_blocks(found.blocks)
     rewrite_footnotes(found.notes)
     rewrite_math(found.maths)
-    unresolved = rewrite_images(found.images, paper)
+    images = rewrite_images(found.images, paper)
     demote_headings(found.headings, found.entry_depth)
-    rewrite_links(found.links, targets, paper)
-    return unresolved, has_equations
+    return images, rewrite_links(found.links, targets, paper), has_equations
 
 
 def _title(metadata: DocumentMetadata, found: Findings) -> str:

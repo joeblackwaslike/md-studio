@@ -45,14 +45,15 @@ class Walk:
         part = self.stacks.parts[-1] if self.stacks.parts else None
         self.entry = Entry(element, part)
         self.found.entries.append(self.entry)
+        self.found.outline.append(self.entry)
         self.stacks.sections.append(element)
-        self.found.sections.append(Section(element, self.entry))
+        self.found.sections[element] = Section(element, self.entry)
         self.note_id(element)
 
     def add_section(self, element: HtmlElement) -> None:
         """Enter a section whose heading can be linked to."""
         self.stacks.sections.append(element)
-        self.found.sections.append(Section(element, None))
+        self.found.sections[element] = Section(element, None)
         self.note_id(element)
 
     def note_id(self, element: HtmlElement) -> None:

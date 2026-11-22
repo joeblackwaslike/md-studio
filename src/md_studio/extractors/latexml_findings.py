@@ -45,7 +45,8 @@ class Findings:
     """Everything one scan found that the source fix rewrites."""
 
     entries: list[Entry] = field(default_factory=list)
-    sections: list[Section] = field(default_factory=list)
+    sections: dict[HtmlElement, Section] = field(default_factory=dict)
+    outline: list["HtmlElement | Entry"] = field(default_factory=list)
     owners: dict[str, HtmlElement] = field(default_factory=dict)
     headings: list[HtmlElement] = field(default_factory=list)
     math_headings: set[HtmlElement] = field(default_factory=set)
