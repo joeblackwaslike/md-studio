@@ -17,13 +17,15 @@ def _level(element: HtmlElement) -> int | None:
     return None if found is None else int(found.group(1))
 
 
-def _pages(elements: Iterable[HtmlElement]) -> tuple[int, int] | None:
-    numbers = [
-        int(page)
-        for element in elements
-        for node in element.iter()
-        if (page := node.get("data-page", "")).strip("0").isdigit()
+def _raw_pages(element: HtmlElement) -> list[str]:
+    return [
+        node.get(attr, "") for node in element.iter() for attr in ("data-page", "data-page-end")
     ]
+
+
+def _pages(elements: Iterable[HtmlElement]) -> tuple[int, int] | None:
+    raw = [page for element in elements for page in _raw_pages(element)]
+    numbers = [int(page) for page in raw if page.strip("0").isdigit()]
     return (min(numbers), max(numbers)) if numbers else None
 
 

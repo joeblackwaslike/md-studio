@@ -212,3 +212,42 @@ def test_non_numeric_page_attributes_are_ignored(tmp_path: Path) -> None:
     document = read_pdf(_pdf(tmp_path), engine=_Stub(html))
 
     assert [chapter.pages for chapter in document.chapters] == [(2, 2)]
+
+
+class _Raising:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def to_html(self, path: Path, images_dir: Path) -> str:
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [RuntimeError("boom"), OSError("disk")])
+def test_injected_engine_failures_become_read_errors(tmp_path: Path, error: Exception) -> None:
+    with pytest.raises(ReadError, match=r"Could not convert paper\.pdf") as caught:
+        read_pdf(_pdf(tmp_path), engine=_Raising(error))
+
+    assert caught.value.__cause__ is error
+
+
+def test_engine_read_errors_pass_through_unwrapped(tmp_path: Path) -> None:
+    with pytest.raises(ReadError, match=r"^plain$"):
+        read_pdf(_pdf(tmp_path), engine=_Raising(ReadError("plain")))
+
+
+def test_whitespace_only_output_is_no_extractable_text(tmp_path: Path) -> None:
+    html = '<html><body><p data-page="1"> </p><h1 data-page="1"> </h1></body></html>'
+
+    with pytest.raises(ReadError, match="no extractable text"):
+        read_pdf(_pdf(tmp_path), engine=_Stub(html))
+
+
+def test_block_spanning_pages_extends_the_chapter_end_page(tmp_path: Path) -> None:
+    html = (
+        '<html><body><h1 data-page="1">A</h1><p data-page="1">x</p>'
+        '<table data-page="3" data-page-end="4"></table></body></html>'
+    )
+
+    document = read_pdf(_pdf(tmp_path), engine=_Stub(html))
+
+    assert [chapter.pages for chapter in document.chapters] == [(1, 4)]

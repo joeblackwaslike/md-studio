@@ -159,3 +159,40 @@ def test_engine_enforces_the_page_limit(tmp_path: Path, monkeypatch: pytest.Monk
 
     with pytest.raises(ReadError, match="the limit is 0"):
         DoclingEngine().to_html(pdf, tmp_path)
+
+
+def _lists(*, ordered_first: bool) -> DoclingDocument:
+    doc = DoclingDocument(name="t")
+    for enumerated in (ordered_first, not ordered_first):
+        group = doc.add_list_group()
+        doc.add_list_item(text="i", enumerated=enumerated, parent=group, prov=_prov(1))
+    return doc
+
+
+def test_ordered_then_bullet_lists_stay_separate() -> None:
+    html = document_html(_lists(ordered_first=True), {})
+
+    assert '<ol><li data-page="1">i</li></ol><ul><li data-page="1">i</li></ul>' in html
+
+
+def test_bullet_then_ordered_lists_stay_separate() -> None:
+    html = document_html(_lists(ordered_first=False), {})
+
+    assert '<ul><li data-page="1">i</li></ul><ol><li data-page="1">i</li></ol>' in html
+
+
+def test_adjacent_lists_of_the_same_kind_in_different_groups_stay_separate() -> None:
+    doc = DoclingDocument(name="t")
+    for _ in range(2):
+        group = doc.add_list_group()
+        doc.add_list_item(text="i", parent=group, prov=_prov(1))
+
+    assert document_html(doc, {}).count("<ul>") == 2
+
+
+def test_table_spanning_pages_carries_its_last_page() -> None:
+    doc = DoclingDocument(name="t")
+    _table(doc)
+    doc.tables[0].prov.append(_prov(4))
+
+    assert '<table data-page="3" data-page-end="4">' in document_html(doc, {})

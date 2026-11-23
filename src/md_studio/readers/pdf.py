@@ -25,8 +25,13 @@ def _check_file(path: Path) -> None:
 
 
 def _to_html(path: Path, engine: PdfEngine) -> str:
-    with TemporaryDirectory() as scratch:
-        return engine.to_html(path, Path(scratch))
+    try:
+        with TemporaryDirectory() as scratch:
+            return engine.to_html(path, Path(scratch))
+    except ReadError:
+        raise
+    except Exception as error:
+        raise ReadError(f"Could not convert {path.name}: {error}") from error
 
 
 def _parse(path: Path, html: str) -> lxml_html.HtmlElement:  # type: ignore[no-any-unimported]
@@ -59,6 +64,8 @@ def read_pdf(source: Path | str, *, engine: PdfEngine | None = None) -> Document
     _check_file(path)
     root = _parse(path, _to_html(path, engine or DoclingEngine()))
     has_math = root.find(".//md-math") is not None
+    if not (has_math or root.text_content().strip()):
+        raise ReadError(f"{path.name} has no extractable text")
     chapters = split_chapters(root, path.stem)
     if not chapters:
         raise ReadError(f"{path.name} has no extractable text")

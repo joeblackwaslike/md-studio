@@ -19,7 +19,8 @@ class PdfEngine(Protocol):
     def to_html(self, path: Path, images_dir: Path) -> str:
         """Return HTML for *path*: flat top-level blocks, each with a ``data-page`` attribute.
 
-        Headings are ``h1`` to ``h6`` by outline depth and display math is
+        A block that spans pages carries its first page in ``data-page`` and, when different,
+        its last in ``data-page-end``. Headings are ``h1`` to ``h6`` by outline depth and display math is
         ``<md-math display="block" tex="...">``. *images_dir* is scratch space for engines
         that extract pictures; the Docling engine does not use it, and pictures are rendered
         as their caption text only.
