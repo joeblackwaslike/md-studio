@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["typer>=0.12", "rich>=13.7"]
-pdf = ["docling>=2.151"]
+pdf = ["docling>=2.151", "docling-core>=2.108", "pypdfium2>=5"]
 
 [project.scripts]
 md-studio = "md_studio.cli:app"
@@ -70,7 +70,7 @@ module = ["md_studio.cli", "md_studio.cli.*"]
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-module = ["lxml.*", "docling.*", "yaml.*"]
+module = ["lxml.*", "docling.*", "pypdfium2.*", "yaml.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

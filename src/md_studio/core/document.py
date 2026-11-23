@@ -26,13 +26,15 @@ class SourceChapter:
     ``element`` is an lxml ``HtmlElement``, typed as ``object`` to avoid
     ``no-any-unimported`` leaks. ``heading`` is optional ready-made Markdown for the chapter heading (a title with math).
     ``title_is_fallback`` is true when the source gave the
-    chapter no label and the title is only the file stem the reader fell back to.
+    chapter no label and the title is only the file stem the reader fell back to. ``pages`` is
+    the first and last source page of a paged source such as a PDF.
     """
 
     title: str
     element: object
     title_is_fallback: bool = False
     heading: str = ""
+    pages: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)

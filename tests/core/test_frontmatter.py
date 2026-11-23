@@ -70,3 +70,23 @@ def test_render_includes_isbn_quoted() -> None:
     )
     assert 'isbn: "9781234567890"' in text
     assert text.endswith("---\n")
+
+
+def test_chapters_without_pages_have_no_page_keys() -> None:
+    front_matter, ranges = build(_meta(), ["A", "B"], _sample_offsets(), "x\n" * 10)
+
+    assert "start_page" not in front_matter
+    assert "end_page" not in front_matter
+    assert [(chapter.start_page, chapter.end_page) for chapter in ranges] == [
+        (None, None),
+        (None, None),
+    ]
+
+
+def test_chapters_with_pages_render_page_keys() -> None:
+    offsets = [ChapterOffset(byte=0, line=1, pages=(3, 7))]
+
+    front_matter, ranges = build(_meta(), ["A"], offsets, "x\n")
+
+    assert "    start_page: 3\n    end_page: 7\n" in front_matter
+    assert (ranges[0].start_page, ranges[0].end_page) == (3, 7)

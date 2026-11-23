@@ -2,7 +2,7 @@ default:
     @just --list
 
 install:
-    @uv sync --extra cli
+    @uv sync --extra cli --extra pdf
 
 lint:
     @uv run ruff check src tests

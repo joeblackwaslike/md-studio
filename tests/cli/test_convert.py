@@ -67,8 +67,8 @@ def test_cli_reports_read_error(tmp_path: Path) -> None:
 
 
 def test_cli_rejects_unsupported_suffix(tmp_path: Path) -> None:
-    source = tmp_path / "book.pdf"
-    source.write_bytes(b"%PDF")
+    source = tmp_path / "book.mobi"
+    source.write_bytes(b"MOBI")
 
     outcome = _convert(source)
 

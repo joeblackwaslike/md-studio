@@ -129,7 +129,7 @@ def test_missing_html_exits_with_a_clear_error(
     outcome = _convert("2606.24937", "-o", tmp_path / "p.md")
 
     assert outcome.exit_code == 1
-    assert "no HTML version of 2606.24937" in outcome.output
+    assert "no HTML or PDF version of 2606.24937" in outcome.output
 
 
 def test_an_existing_local_file_is_never_claimed_by_an_extractor(

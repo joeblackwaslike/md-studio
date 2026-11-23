@@ -78,16 +78,16 @@ class Renderer:
         """Render all *chapters* and return the body plus start offsets."""
         with render_options(escape_dollars=self._has_math, embed_images=self._embed_images):
             for chapter in chapters:
-                self._start_chapter(chapter.title, chapter.heading)
+                self._start_chapter(chapter)
                 self._render_body(chapter)
         return RenderResult(body=self._buffer.text(), offsets=list(self._offsets))
 
-    def _start_chapter(self, title: str, heading: str) -> None:
+    def _start_chapter(self, chapter: ir.ChapterIR) -> None:
         """Record the start offset, then write the ``## {title}`` heading."""
         self._buffer.ensure_blank_line()
-        start = ChapterOffset(byte=self._buffer.byte, line=self._buffer.line)
+        start = ChapterOffset(self._buffer.byte, self._buffer.line, chapter.pages)
         self._offsets.append(start)
-        text = heading or escape_dollars(normalize_ws(title))
+        text = chapter.heading or escape_dollars(normalize_ws(chapter.title))
         self._buffer.write(f"## {text}\n")
 
     def _render_body(self, chapter: ir.ChapterIR) -> None:

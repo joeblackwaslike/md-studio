@@ -6,14 +6,16 @@ Convert EPUB, HTML, PDF and arXiv sources to Markdown.
 
 ```bash
 uv sync --extra cli
+uv sync --extra cli --extra pdf   # also converts PDFs
 ```
 
-Extras: `cli` (typer, rich) and `pdf` (docling).
+Extras: `cli` (typer, rich) and `pdf` (docling, docling-core, pypdfium2). Without `pdf`, converting a PDF fails with `Error: PDF support needs Docling; install it with: pip install 'md-studio[pdf]'`.
 
 ## Usage
 
 ```bash
 md-studio convert BOOK.epub [-o PATH] [--ext NAMES] [--force] [--sink file|obsidian] [--vault PATH]
+md-studio convert PAPER.pdf [-o PATH]
 md-studio convert <arxiv url|id> [--arxiv-id ID] [-o PATH]
 ```
 
@@ -29,15 +31,23 @@ Nothing runs unless you name it with `--ext`. Built-ins: `fix-headings`, `remove
 
 Extensions come in two kinds that share one name list. A Markdown extension subclasses `md_studio.core.extensions.MarkdownExtension` and transforms chapters. A source fix has a `name` and `apply(document) -> Document` (the `SourceFix` protocol) and runs before extraction, in listed order. To add either, write the class and register it in the `md_studio.extensions` entry-point group, or add it to `BUILTINS` in `md_studio/core/extensions/discovery.py`. Names are unique across both kinds: the first registration of a name wins (built-ins first), a later entry-point reusing it is ignored with a log warning, and an entry-point that fails to load or registers something unusable is reported only if you ask for its name.
 
+### PDF files
+
+`md-studio convert PAPER.pdf` reads the PDF with Docling (needs the `pdf` extra). Chapters follow the PDF's outline when it has one: top-level outline entries become chapters, deeper ones become `###` and below. Headings before the first outline match, such as the title and Abstract, each start their own chapter. Later headings the outline does not list, such as References, stay subsections of the chapter before them. Without an outline every heading is its own chapter. Running page headers and footers are dropped, and each chapter's `start_page` and `end_page` are written to the front matter.
+
+- Formulas are not decoded, so they are dropped (Docling's formula enrichment costs about 47 seconds per formula and is not exposed on the command line yet). Code blocks lose their indentation. Pictures are not extracted; only their caption text is kept.
+- A PDF over 50 MiB or 1500 pages is refused. A damaged, encrypted or non-PDF file fails with `Could not convert <name>: ...`, and a PDF with no text with `<name> has no extractable text`.
+- Scanned PDFs have not been tested.
+
 ### arXiv papers
 
-`md-studio convert 2606.24937`, `md-studio convert https://arxiv.org/abs/2606.24937v3` and the `/pdf/` and `/html/` URLs all read the paper's HTML version at `https://arxiv.org/html/<id>`. Old-style ids such as `hep-th/9901001` work too. The output is `arxiv-<id>.md` in the current directory unless you pass `-o`.
+`md-studio convert 2606.24937`, `md-studio convert https://arxiv.org/abs/2606.24937v3` and the `/pdf/` and `/html/` URLs all read the paper's HTML version at `https://arxiv.org/html/<id>`, falling back to the PDF when arXiv has no HTML version. Old-style ids such as `hep-th/9901001` work too. The output is `arxiv-<id>.md` in the current directory unless you pass `-o`.
 
 - `--arxiv-id ID` treats the source as that paper and ignores the source argument. It takes an id or an arXiv URL.
 - A path that exists on disk is never taken for an arXiv id.
 - The HTML route splits the paper into one chapter per chapter, appendix and the bibliography, with part names in the titles. Math comes from the original TeX (`$...$` and `$$...$$`), figures are embedded as `![caption](absolute url)`, and listings become fenced code with their language. This runs the `arxiv-latexml` source fix, which the extractor enables on its own, so you do not pass `--ext` for it.
 - A paper without chapters (an article) is split at its top-level sections instead, with the same rules for math, listings, footnotes, images and links. The abstract, keywords and other front matter keep their own chapters. A page with neither chapters nor sections is left as it is, with a warning.
-- If arXiv has no HTML version the command fails with a clear error. The PDF fallback is not built yet.
+- If arXiv has no HTML version the PDF at `https://arxiv.org/pdf/<id>` is downloaded and read as described under PDF files (it needs the `pdf` extra), with the PDF URL as `source_file`. If there is no PDF either the command fails with `arXiv has no HTML or PDF version of <id>`. Other HTTP errors on the HTML page do not trigger the fallback.
 
 arXiv's access rules are built in. Only `/html/`, `/abs/` and `/pdf/` are fetched, never `/e-print` or `/src`. Requests within one run are spaced at least 15 seconds apart, redirect hops included, and carry a descriptive User-Agent. The spacing is kept per process, so it does not span separate `md-studio` invocations; do not script several runs back to back. Convert one paper at a time; there is no bulk mode.
 

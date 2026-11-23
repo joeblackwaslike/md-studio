@@ -5,10 +5,11 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True, slots=True)
 class ChapterOffset:
-    """Start position of a chapter in the rendered body."""
+    """Start position of a chapter in the rendered body, with its source pages if it has any."""
 
     byte: int
     line: int
+    pages: tuple[int, int] | None = None
 
 
 @dataclass
